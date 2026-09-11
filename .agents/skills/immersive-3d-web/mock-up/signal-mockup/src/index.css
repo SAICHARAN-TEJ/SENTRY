@@ -1,0 +1,323 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  --color-void: #070a10;
+  --color-panel: #0f141c;
+  --color-panel-hover: #161e2a;
+  --color-mist: #f0f4fa;
+  --color-dim: #7c8797;
+  --color-signal: #4f8cff;
+  --color-good: #3ddc84;
+  --color-warn: #ffb454;
+  --color-bad: #ff5566;
+  --color-violet: #b98cff;
+  --color-line: rgba(240, 244, 250, 0.1);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    cursor: none;
+  }
+
+  body {
+    @apply bg-void text-mist font-sans antialiased;
+  }
+
+  @media (pointer: coarse) {
+    html {
+      cursor: auto;
+    }
+  }
+}
+
+@layer components {
+  /* ── Reveal / entrance ──────────────────────────────────────────── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(4px);
+    transition:
+      opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      filter 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal-visible {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+
+  /* CSS-only stagger for static, author-order content — see
+     state-and-feedback.md. `both` so delayed children stay hidden
+     through their delay instead of flashing then snapping. */
+  .stagger > * {
+    opacity: 0;
+    animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0.05s; }
+  .stagger > *:nth-child(2) { animation-delay: 0.2s; }
+  .stagger > *:nth-child(3) { animation-delay: 0.35s; }
+  .stagger > *:nth-child(4) { animation-delay: 0.5s; }
+  .stagger > *:nth-child(5) { animation-delay: 0.65s; }
+
+  /* ── Liquid-glass badge border ──────────────────────────────────── */
+  .glass-card {
+    position: relative;
+    background: rgba(240, 244, 250, 0.02);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: inset 0 1px 1px rgba(240, 244, 250, 0.1);
+  }
+  .glass-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1.4px;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(240, 244, 250, 0.5), rgba(240, 244, 250, 0));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* ── Nav underline ───────────────────────────────────────────────── */
+  .nav-link { position: relative; }
+  .nav-link::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -3px;
+    width: 100%;
+    height: 1px;
+    background: currentColor;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .nav-link:hover::after,
+  .nav-link:focus-visible::after {
+    transform: scaleX(1);
+  }
+
+  /* ── Card hover lift ─────────────────────────────────────────────── */
+  .lift-card {
+    transition:
+      transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .lift-card:hover,
+  .lift-card:focus-visible {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px -12px rgba(79, 140, 255, 0.25);
+    border-color: rgba(79, 140, 255, 0.4);
+  }
+
+  /* ── Sheen: hover-triggered sweep (buttons/cards) ───────────────── */
+  .btn-sheen { position: relative; overflow: hidden; }
+  .btn-sheen::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -80%;
+    width: 50%;
+    height: 100%;
+    transform: skewX(-20deg);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    transition: left 0.55s ease;
+    pointer-events: none;
+  }
+  .btn-sheen:hover::after { left: 130%; }
+
+  /* ── Sheen: continuous ambient (one primary CTA only) ───────────── */
+  .hero-cta { position: relative; overflow: hidden; }
+  .hero-cta::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: cta-shine 3.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes cta-shine {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* ── Tilt card ───────────────────────────────────────────────────── */
+  .tilt-card {
+    transform-style: preserve-3d;
+    will-change: transform;
+  }
+
+  /* Hover-only gradient-ring overlay (mask-composite — content underneath
+     stays untouched). Pairs with .tilt-card. See state-and-feedback.md
+     for why this differs from .locked-card below. */
+  .glow-ring { position: relative; }
+  .glow-ring::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1.5px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(90deg, var(--color-signal), var(--color-violet));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    box-shadow: 0 0 28px 2px rgba(79, 140, 255, 0.18);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  .glow-ring:hover::after { opacity: 1; }
+
+  /* Opaque double-background gradient border — the box's own real
+     surface, for a permanently-visible "locked" state. Not
+     interchangeable with .glow-ring; see state-and-feedback.md. */
+  .locked-card {
+    background:
+      linear-gradient(135deg, color-mix(in oklch, var(--color-panel) 94%, var(--color-violet) 6%), color-mix(in oklch, var(--color-panel) 94%, var(--color-signal) 6%)) padding-box,
+      linear-gradient(90deg, var(--color-signal), var(--color-violet)) border-box;
+    border: 1.5px solid transparent;
+  }
+
+  /* ── Selected state ──────────────────────────────────────────────── */
+  .selected {
+    border-color: rgba(79, 140, 255, 0.4) !important;
+    background: rgba(79, 140, 255, 0.06);
+    box-shadow: inset 0 0 30px -12px rgba(79, 140, 255, 0.6);
+  }
+
+  /* ── Skeleton loading ────────────────────────────────────────────── */
+  @keyframes pulse-slow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  .animate-pulse-slow { animation: pulse-slow 1.6s ease-in-out infinite; }
+
+  /* ── Aurora background ───────────────────────────────────────────── */
+  @keyframes blob-drift-1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(6%, 8%) scale(1.12); }
+  }
+  @keyframes blob-drift-2 {
+    0%, 100% { transform: translate(0, 0) scale(1.05); }
+    50% { transform: translate(-7%, -5%) scale(0.95); }
+  }
+  .aurora-blob { position: absolute; border-radius: 50%; filter: blur(90px); pointer-events: none; will-change: transform; }
+  .aurora-1 { animation: blob-drift-1 18s ease-in-out infinite; }
+  .aurora-2 { animation: blob-drift-2 23s ease-in-out infinite; }
+
+  /* ── Animated gradient text ──────────────────────────────────────── */
+  @keyframes gradient-pan {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+  .text-gradient-animated {
+    background: linear-gradient(90deg, var(--color-mist) 0%, var(--color-signal) 30%, var(--color-violet) 55%, var(--color-mist) 80%, var(--color-mist) 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation: gradient-pan 7s linear infinite;
+  }
+
+  /* ── Watermark breathe ───────────────────────────────────────────── */
+  @keyframes logo-breathe {
+    0%, 100% { opacity: 0.05; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.08; transform: translate(-50%, -50%) scale(1.02); }
+  }
+  .logo-watermark { animation: logo-breathe 7s ease-in-out infinite; }
+
+  /* ── Ticker tape ─────────────────────────────────────────────────── */
+  @keyframes ticker-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .ticker-track { display: flex; width: max-content; animation: ticker-scroll 38s linear infinite; will-change: transform; }
+  .ticker-wrap:hover .ticker-track { animation-play-state: paused; }
+
+  /* ── Progress bar grow ───────────────────────────────────────────── */
+  @keyframes grow-width {
+    from { width: 0%; }
+    to { width: var(--tw, 100%); }
+  }
+  .animate-grow { animation: grow-width 0.9s cubic-bezier(0.4, 0, 0.2, 1) 0.2s both; }
+
+  /* ── Custom cursor ───────────────────────────────────────────────── */
+  .cursor-ring, .cursor-dot {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 99999;
+    will-change: transform;
+  }
+  .cursor-dot::after, .cursor-ring::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+  }
+  .cursor-dot::after {
+    width: 5px;
+    height: 5px;
+    background: var(--color-signal);
+    transition: opacity 0.2s ease;
+  }
+  .cursor-ring::after {
+    width: 24px;
+    height: 24px;
+    border: 1.5px solid var(--color-signal);
+    background: transparent;
+    transition: width 0.25s ease, height 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+  }
+  body.cursor-hovering .cursor-ring::after {
+    width: 34px;
+    height: 34px;
+    border-color: transparent;
+    background: radial-gradient(circle, rgba(79, 140, 255, 0.3), rgba(79, 140, 255, 0) 70%);
+  }
+  body.cursor-hovering .cursor-dot::after { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .stagger > * {
+    animation: none;
+    transition: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  .aurora-1, .aurora-2, .hero-cta::after, .text-gradient-animated,
+  .logo-watermark, .ticker-track, .btn-sheen::after, .glow-ring::after {
+    animation: none;
+  }
+  .logo-watermark { opacity: 0.04; }
+  .btn-sheen::after { display: none; }
+  .tilt-card { transition: none !important; }
+}

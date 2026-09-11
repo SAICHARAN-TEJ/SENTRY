@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "skills": {
+    "immersive-3d-web": {
+      "source": "gabremoku/immersive-3d-web",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "aebc296c364382f9da3db38a8a5b049ee9c374ccf9bd77d759c35d620cb945f7"
+    },
+    "product-from-scratch": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/product-from-scratch/SKILL.md",
+      "computedHash": "3f1caa1c54ef5b5a92d98bf77acbde43dfda4f1c553829095927aa1ae36070dd"
+    },
+    "threejs-ambient-contact-shading": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-ambient-contact-shading/SKILL.md",
+      "computedHash": "262c26cc8d209a76c17c90f2c81928bc42dd0ea357c8bbc7b12dc0fd7dce29ec"
+    },
+    "threejs-black-holes-and-space-effects": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-black-holes-and-space-effects/SKILL.md",
+      "computedHash": "023161784146f46a58861711d1c55a1b48df487be1ad316acaac272cbf617dc2"
+    },
+    "threejs-bloom": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-bloom/SKILL.md",
+      "computedHash": "b775a36f801eacfad21b4317a54739b85aca6e79bd60cef8c9ff5527fb96ac15"
+    },
+    "threejs-camera-controls-and-rigs": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-camera-controls-and-rigs/SKILL.md",
+      "computedHash": "404c5a2cfe376db1856ad40ad5dac246a4ab3084491df68d609d763ef0563f79"
+    },
+    "threejs-choose-skills": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-choose-skills/SKILL.md",
+      "computedHash": "2138d2120731d51d638f4c126d8176e39aad584c22624769fc2830048bf35dc3"
+    },
+    "threejs-compatibility-fallbacks": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-compatibility-fallbacks/SKILL.md",
+      "computedHash": "a48a68036533dee96ccb8ca9da6b13ea23436f5e16e99c9bf37e2f1a375e40a3"
+    },
+    "threejs-debugging": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-debugging/SKILL.md",
+      "computedHash": "a71074ad2f0e257b185c6f2ff52a9efef6951b224920da64cddfda237d15bbfa"
+    },
+    "threejs-dynamic-surface-effects": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-dynamic-surface-effects/SKILL.md",
+      "computedHash": "e7190abe8b791f3ea673133516dabe2eb8759d824bcf43edcafa449d8da7a823"
+    },
+    "threejs-exposure-color-grading": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-exposure-color-grading/SKILL.md",
+      "computedHash": "b7794d86c8cf2c41831a0fc61bbbade52097ed519af20d6373393dcec1a20b68"
+    },
+    "threejs-image-pipeline": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-image-pipeline/SKILL.md",
+      "computedHash": "9f87c8eca9513bbf5b1f68a64ae3352c3d4bd9c9bec7da82ba7451f231b7a978"
+    },
+    "threejs-object-sculptor": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-object-sculptor/SKILL.md",
+      "computedHash": "25d5b7f54a0cf9d68fbdb382ca53655a0392943f032a9d6787e782e9a6bc88da"
+    },
+    "threejs-particles-trails-and-effects": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-particles-trails-and-effects/SKILL.md",
+      "computedHash": "c2c65a86bb6600cc7bd5f11423851c9b86444ea61022155618d472dedae3b25f"
+    },
+    "threejs-procedural-buildings-and-cities": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-buildings-and-cities/SKILL.md",
+      "computedHash": "8f02d551f072cc62a0f76014e275c1f1915c3685102a30544edad70030ef73d3"
+    },
+    "threejs-procedural-creatures": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-creatures/SKILL.md",
+      "computedHash": "1ce145b7f355983df2af61acc90740b4c636f4e81729d1868b1462fe935bd1bc"
+    },
+    "threejs-procedural-fields": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-fields/SKILL.md",
+      "computedHash": "29e36a579007c87ad1c89d124b2c5d2deb124798d98640d814847d0d40c116e2"
+    },
+    "threejs-procedural-geometry": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-geometry/SKILL.md",
+      "computedHash": "eb4d59b95b673de3d8aedd731f28c3a2bf4381fc8777e0f7d8d3ce1aa99a4068"
+    },
+    "threejs-procedural-materials": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-materials/SKILL.md",
+      "computedHash": "922365d9c0ecb9f0768fb2b35165d346f4d94ab32ea34ec84454c7b14fdfe74a"
+    },
+    "threejs-procedural-motion-systems": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-motion-systems/SKILL.md",
+      "computedHash": "3a9e773d0c5ade4ea255415ab108ed98b78816dfb6bb6eb931463904cfad07fd"
+    },
+    "threejs-procedural-planets": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-planets/SKILL.md",
+      "computedHash": "b7f3a0149feb8322ada8612fdcf1ef8afcf46ba14544680ae0af2cec6db31163"
+    },
+    "threejs-procedural-vegetation": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-procedural-vegetation/SKILL.md",
+      "computedHash": "0dbfac56dffd3fecbf780c9480d9aa6d4cf65f969c4b1cd84b63c4beede6127f"
+    },
+    "threejs-rain-snow-and-wet-surfaces": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-rain-snow-and-wet-surfaces/SKILL.md",
+      "computedHash": "f2eb217306a688b5d591fcdf3d2e17d05bb6a3ce08129fdb0c085316fc4ff187"
+    },
+    "threejs-scalable-real-time-shadows": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-scalable-real-time-shadows/SKILL.md",
+      "computedHash": "52614672fe844a53202c6edc6a4377bcc47ce7ec9e28d59400b66e016f79c454"
+    },
+    "threejs-sky-atmosphere-and-haze": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-sky-atmosphere-and-haze/SKILL.md",
+      "computedHash": "50bc82db96741b6a1b831cd957cf2c8265393cd3ee3970936032528aca77260e"
+    },
+    "threejs-spectral-ocean": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-spectral-ocean/SKILL.md",
+      "computedHash": "0a9c73d50a9d866156ce1de86fb2f62161578bdba65a470fae1e6f90745bec36"
+    },
+    "threejs-visual-validation": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-visual-validation/SKILL.md",
+      "computedHash": "12ec1ba239705da943d457ebad493ea1f5600ae70d3d7ec51c97cfd21eb7552d"
+    },
+    "threejs-volumetric-clouds": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-volumetric-clouds/SKILL.md",
+      "computedHash": "2bd406cc7cb3ac7eba84af1ad829979f4a77e8bef1a1ad9ff3c18f1578670c2c"
+    },
+    "threejs-water-optics": {
+      "source": "linegel/threejs-complete-set-of-skill",
+      "sourceType": "github",
+      "skillPath": "skills/threejs-water-optics/SKILL.md",
+      "computedHash": "68d35f8145d87bc8ed55ce00d134e384632d7b31ec5e42d354ae29f949de0d11"
+    }
+  }
+}

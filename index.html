@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SUBPIXEL-SENTRY — Tactical Land-Cover Intelligence</title>
+  <meta name="description" content="10m Sentinel-2 pixels to 2.5m validated land-cover intelligence. Deep Learning Super Resolution Mapping for NTRO.">
+  <meta name="color-scheme" content="dark">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Cpath d='M2 8 L14 2 M2 8 L14 14' stroke='%23fff' stroke-width='1.4'/%3E%3Ccircle cx='2' cy='8' r='2.2' fill='%23fff'/%3E%3C/svg%3E">
+
+  <!-- Apple SF Pro Fonts -->
+  <link rel="stylesheet" href="https://fonts.cdnfonts.com/css/sf-pro-display">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="css/spacex-theme.css?v=11">
+  <link rel="stylesheet" href="css/console.css?v=11">
+
+  <!-- Three.js CDN (r170) — terrain layer only; console degrades fully without it -->
+  <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <noscript>
+    <div style="padding: 40px; font-family: sans-serif; color: #ececf1; background: #000; min-height: 100vh;">
+      <h1 style="letter-spacing: 2px; text-transform: uppercase;">Subpixel-Sentry</h1>
+      <p style="color: #8b8b94; margin-top: 8px;">This operational console requires JavaScript. Enable it to run the SRM pipeline interface.</p>
+    </div>
+  </noscript>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       CINEMATIC LOADING SCREEN
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="loadingScreen" role="status" aria-label="System initializing">
+    <div class="loading-wordmark">Subpixel-Sentry</div>
+    <div class="loading-sub">Tactical Land-Cover Intelligence System</div>
+    <div class="loading-bar-track" aria-hidden="true">
+      <div id="loadingBarFill" class="loading-bar-fill"></div>
+    </div>
+    <div id="loadingReadout" class="loading-readout">INITIALIZING…</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       THREE.JS 3D BACKGROUND CANVAS
+       ═══════════════════════════════════════════════════════════════ -->
+  <canvas id="threeCanvas" aria-hidden="true"></canvas>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       APPLICATION SHELL (Instrument panels over 3D scene)
+       ═══════════════════════════════════════════════════════════════ -->
+  <div class="console-app" style="opacity: 0;" id="appShell">
+
+    <!-- Top Mission Bar -->
+    <header class="console-header" role="banner">
+      <div class="header-left">
+        <div class="logo-block">
+          <span class="logo-text">Subpixel-Sentry</span>
+        </div>
+        <div class="header-divider" aria-hidden="true"></div>
+        <div class="aoi-selector-wrap">
+          <label class="micro-cap" for="aoiSelect" style="margin-right: 6px;">AOI</label>
+          <select id="aoiSelect" class="console-select" aria-label="Select area of interest">
+            <option value="AOI_01">Sector Tawang &mdash; LAC Forward Area</option>
+            <option value="AOI_02">Sector Pangong &mdash; North Finger Ridge</option>
+            <option value="AOI_03">Sector DBO &mdash; Caravan Depot</option>
+          </select>
+        </div>
+      </div>
+
+      <nav class="header-tabs" role="tablist" aria-label="Console sections">
+        <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tabMap" id="tabMapBtn" data-tab="tabMap"><span class="tab-idx">01</span> Map</button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tabAlerts" id="tabAlertsBtn" data-tab="tabAlerts"><span class="tab-idx">02</span> Alerts</button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tabMetrics" id="tabMetricsBtn" data-tab="tabMetrics"><span class="tab-idx">03</span> Metrics</button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tabTrace" id="tabTraceBtn" data-tab="tabTrace"><span class="tab-idx">04</span> Trace</button>
+      </nav>
+
+      <div class="header-right">
+        <button id="runPipelineBtn" class="button-ghost button-ghost-sm">Run Pipeline</button>
+      </div>
+    </header>
+
+    <!-- Main Viewport Body -->
+    <main class="console-body">
+
+      <!-- ═══════════════════════════════════════════════════════════
+           TAB 1: MAP & SRM SUPER-RESOLUTION ENGINE
+           ═══════════════════════════════════════════════════════════ -->
+      <section id="tabMap" class="tab-content active" role="tabpanel" aria-labelledby="tabMapBtn" tabindex="0">
+        <div class="srm-map-layout">
+          <!-- Left: Canvas Viewport -->
+          <div class="map-viewport-panel">
+            <div class="map-control-bar">
+              <div class="map-view-toggles" role="group" aria-label="Viewport mode">
+                <span class="micro-cap" style="margin-right: 6px;">Viewport</span>
+                <button class="map-toggle-btn active" data-view="SPLIT" aria-pressed="true">Split Slider</button>
+                <button class="map-toggle-btn" data-view="COARSE" aria-pressed="false">10m Sentinel-2</button>
+                <button class="map-toggle-btn" data-view="FINE" aria-pressed="false">2.5m Resolved</button>
+                <button class="map-toggle-btn" data-view="3D" aria-pressed="false">3D Tactical DEM</button>
+              </div>
+            </div>
+
+            <!-- Canvas Container with Split Slider -->
+            <div class="map-canvas-container">
+              <div class="srm-canvas-stage" id="srmStage">
+                <canvas id="canvasCoarse" class="srm-canvas" width="640" height="640" aria-hidden="true"></canvas>
+                <canvas id="canvasFine" class="srm-canvas srm-canvas-fine" width="640" height="640" aria-hidden="true"></canvas>
+
+                <div id="sliderLine" class="split-slider-line" aria-hidden="true"></div>
+                <div id="sliderHandle" class="split-slider-handle" role="slider" tabindex="0"
+                     aria-label="Comparison slider — left 10m source, right 2.5m resolved"
+                     aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"
+                     aria-valuetext="50% comparison position">
+                  <span class="slider-grip" aria-hidden="true"></span>
+                  <span>Drag to Compare</span>
+                </div>
+
+                <!-- HUD Readouts -->
+                <div class="map-hud-overlay hud-top-left">
+                  <div class="hud-title">Left: 10m Sentinel-2 L2A</div>
+                  <div>SWIR False Color (B12-B8-B4)</div>
+                  <div>SCL Cloud Masked</div>
+                </div>
+
+                <div class="map-hud-overlay hud-top-right">
+                  <div class="hud-title">Right: 2.5m Super-Resolved</div>
+                  <div>Hybrid FCLS + 50K MLP Allocation</div>
+                  <div>Atkinson Pixel-Swap Refined</div>
+                </div>
+
+                <!-- Legend -->
+                <div class="map-hud-overlay hud-bottom-left" role="img" aria-label="Land cover legend: impervious, vegetation, water, soil, shade, no data">
+                  <div class="legend-item">
+                    <span class="legend-swatch" style="background: var(--spectral-impervious);"></span>
+                    <span>Impervious</span>
+                  </div>
+                  <div class="legend-item">
+                    <span class="legend-swatch" style="background: var(--spectral-vegetation);"></span>
+                    <span>Vegetation</span>
+                  </div>
+                  <div class="legend-item">
+                    <span class="legend-swatch" style="background: var(--spectral-water);"></span>
+                    <span>Water</span>
+                  </div>
+                  <div class="legend-item">
+                    <span class="legend-swatch" style="background: var(--spectral-soil);"></span>
+                    <span>Soil</span>
+                  </div>
+                  <div class="legend-item">
+                    <span class="legend-swatch" style="background: var(--spectral-shade);"></span>
+                    <span>Shade</span>
+                  </div>
+                  <div class="legend-item">
+                    <span class="legend-swatch" style="background: var(--spectral-nodata);"></span>
+                    <span>No Data (SCL)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: FCLS Pixel Inspector Sidebar -->
+          <aside class="srm-inspector-sidebar" aria-label="Pixel inspector">
+            <div class="inspector-header">
+              <span class="micro-cap eyebrow-accent">FCLS Pixel Inspector</span>
+              <span id="inspectCoordBadge" class="chip neutral">X:14 Y:16</span>
+            </div>
+
+            <!-- Sub-pixel Allocation Preview -->
+            <div class="inspector-section">
+              <div class="inspector-section-title">
+                <span>Sub-pixel Allocation (16 cells @ 2.5m)</span>
+                <span class="title-note" id="subpixelAreaBadge">100 m&sup2;</span>
+              </div>
+              <div id="subpixelPreview" class="subpixel-grid-preview" aria-hidden="true"></div>
+              <div class="geometry-card">
+                <div class="geometry-row">
+                  <span>Geometry Class</span>
+                  <span class="row-strong" id="geoClassVal">Probable Structure</span>
+                </div>
+                <div class="geometry-row">
+                  <span>Aspect Ratio</span>
+                  <span id="geoAspectVal">1.14 : 1 (Compact)</span>
+                </div>
+                <div class="geometry-row">
+                  <span>Calibrated Conf.</span>
+                  <span id="geoConfVal">0.91 (High)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- FCLS Material Abundances -->
+            <div class="inspector-section">
+              <div class="inspector-section-title">
+                <span>FCLS Material Abundances</span>
+                <span class="title-note">Sum = 1.000</span>
+              </div>
+              <div class="abundance-bar-group">
+                <div class="abundance-row">
+                  <div class="abundance-label-row">
+                    <span style="color: var(--spectral-impervious);">Impervious</span>
+                    <span id="pctImp">72.0%</span>
+                  </div>
+                  <div class="abundance-track" role="progressbar" aria-label="Impervious fraction">
+                    <div id="barImp" class="abundance-fill" style="width: 72%; background: var(--spectral-impervious);"></div>
+                  </div>
+                </div>
+                <div class="abundance-row">
+                  <div class="abundance-label-row">
+                    <span style="color: var(--spectral-vegetation);">Vegetation</span>
+                    <span id="pctVeg">10.0%</span>
+                  </div>
+                  <div class="abundance-track" role="progressbar" aria-label="Vegetation fraction">
+                    <div id="barVeg" class="abundance-fill" style="width: 10%; background: var(--spectral-vegetation);"></div>
+                  </div>
+                </div>
+                <div class="abundance-row">
+                  <div class="abundance-label-row">
+                    <span style="color: var(--spectral-water);">Water</span>
+                    <span id="pctWat">0.0%</span>
+                  </div>
+                  <div class="abundance-track" role="progressbar" aria-label="Water fraction">
+                    <div id="barWat" class="abundance-fill" style="width: 0%; background: var(--spectral-water);"></div>
+                  </div>
+                </div>
+                <div class="abundance-row">
+                  <div class="abundance-label-row">
+                    <span style="color: var(--spectral-soil);">Soil</span>
+                    <span id="pctSoil">10.0%</span>
+                  </div>
+                  <div class="abundance-track" role="progressbar" aria-label="Soil fraction">
+                    <div id="barSoil" class="abundance-fill" style="width: 10%; background: var(--spectral-soil);"></div>
+                  </div>
+                </div>
+                <div class="abundance-row">
+                  <div class="abundance-label-row">
+                    <span style="color: var(--spectral-shade);">Shade</span>
+                    <span id="pctShade">8.0%</span>
+                  </div>
+                  <div class="abundance-track" role="progressbar" aria-label="Shade fraction">
+                    <div id="barShade" class="abundance-fill" style="width: 8%; background: var(--spectral-shade);"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Spectral Reflectance -->
+            <div class="inspector-section">
+              <div class="inspector-section-title">
+                <span>Sentinel-2 BOA Reflectance</span>
+                <span class="title-note">6 Bands</span>
+              </div>
+              <div class="geometry-card">
+                <div class="geometry-row"><span>B2 (490nm Blue)</span><span id="bandB2">0.0512</span></div>
+                <div class="geometry-row"><span>B3 (560nm Green)</span><span id="bandB3">0.0841</span></div>
+                <div class="geometry-row"><span>B4 (665nm Red)</span><span id="bandB4">0.1120</span></div>
+                <div class="geometry-row"><span>B8 (842nm NIR)</span><span id="bandB8">0.3120</span></div>
+                <div class="geometry-row"><span>B11 (1610nm SWIR1)</span><span id="bandB11">0.2450</span></div>
+                <div class="geometry-row"><span>B12 (2190nm SWIR2)</span><span id="bandB12">0.1980</span></div>
+              </div>
+            </div>
+
+            <!-- Stage 3b Refinement Audit -->
+            <div class="inspector-section">
+              <div class="inspector-section-title">
+                <span>Stage 3b Refinement Audit</span>
+                <span class="chip live">Conserved</span>
+              </div>
+              <div class="geometry-card">
+                <div class="geometry-row"><span>Swap Iterations</span><span id="auditIter">8 iterations</span></div>
+                <div class="geometry-row"><span>Spatial Coherence</span><span id="auditCoherence">0.842 (settled)</span></div>
+                <div class="geometry-row"><span>Mass Conservation MSE</span><span class="row-pass" id="auditMse">0.0084 (&lt; 0.05 pass)</span></div>
+                <div class="geometry-row"><span>FCLS Residual (RMSE)</span><span id="auditRmse">0.0142 (in-model)</span></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════
+           TAB 2: MODE B ALERTS & HUMAN-REVIEW QUEUE
+           ═══════════════════════════════════════════════════════════ -->
+      <section id="tabAlerts" class="tab-content" role="tabpanel" aria-labelledby="tabAlertsBtn" tabindex="0" hidden>
+        <div class="alerts-layout">
+          <div class="alerts-toolbar">
+            <div class="alerts-filters" role="group" aria-label="Filter alerts">
+              <span class="micro-cap" style="margin-right: 6px;">Filter</span>
+              <button class="alert-filter-btn active" data-filter="ALL" aria-pressed="true">All Targets</button>
+              <button class="alert-filter-btn" data-filter="HUMAN_REVIEW" aria-pressed="false">Human Review</button>
+              <button class="alert-filter-btn" data-filter="CONFIRMED" aria-pressed="false">Confirmed</button>
+              <button class="alert-filter-btn" data-filter="DISMISSED" aria-pressed="false">Dismissed</button>
+            </div>
+            <div class="alerts-toolbar-right">
+              <span class="chip alert" id="reviewCountChip">3 Pending Review</span>
+              <button id="exportAllKmlBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Export KML</button>
+            </div>
+          </div>
+
+          <div class="alerts-table-wrap">
+            <table class="alerts-table" aria-label="Change detection alerts">
+              <thead>
+                <tr>
+                  <th scope="col">Alert ID</th>
+                  <th scope="col">Coordinates</th>
+                  <th scope="col">UTM Grid</th>
+                  <th scope="col">Material Delta</th>
+                  <th scope="col">Classification</th>
+                  <th scope="col">Confidence</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="alertsTableBody">
+                <tr class="skeleton-row"><td colspan="8"><div class="skeleton-block" style="width: 60%;"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="8"><div class="skeleton-block" style="width: 45%;"></div></td></tr>
+                <tr class="skeleton-row"><td colspan="8"><div class="skeleton-block" style="width: 70%;"></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════
+           TAB 3: METRICS & SCIENTIFIC VALIDATION LAB
+           ═══════════════════════════════════════════════════════════ -->
+      <section id="tabMetrics" class="tab-content" role="tabpanel" aria-labelledby="tabMetricsBtn" tabindex="0" hidden>
+        <div class="metrics-layout">
+          <div class="metrics-kpi-grid stagger-children">
+            <div class="metric-kpi-card">
+              <span class="kpi-label">Overall Accuracy</span>
+              <span class="kpi-value" data-target="74.2">0</span>
+              <span class="kpi-sub">Cross-scale (target &gt;70%)</span>
+            </div>
+            <div class="metric-kpi-card">
+              <span class="kpi-label">Kappa Coefficient</span>
+              <span class="kpi-value" data-target="0.64">0</span>
+              <span class="kpi-sub">Validation set (target &gt;0.60)</span>
+            </div>
+            <div class="metric-kpi-card">
+              <span class="kpi-label">Synthetic Min Detect</span>
+              <span class="kpi-value" data-target="45" data-prefix="~" data-suffix=" m&sup2;">0</span>
+              <span class="kpi-sub">Controlled injection limit</span>
+            </div>
+            <div class="metric-kpi-card">
+              <span class="kpi-label">Real-World Estimate</span>
+              <span class="kpi-value" data-static="100&ndash;150 m&sup2;">100&ndash;150 m&sup2;</span>
+              <span class="kpi-sub">Sensor noise &amp; atm residuals</span>
+            </div>
+            <div class="metric-kpi-card">
+              <span class="kpi-label">WorldCover Agreement</span>
+              <span class="kpi-value" data-target="78.6">0</span>
+              <span class="kpi-sub">External validation</span>
+            </div>
+            <div class="metric-kpi-card">
+              <span class="kpi-label">Empirical FP Rate</span>
+              <span class="kpi-value" data-target="3.8">0</span>
+              <span class="kpi-sub">50 independent stable px</span>
+            </div>
+          </div>
+
+          <div class="charts-grid">
+            <div class="chart-card">
+              <div class="chart-header">
+                <span class="chart-title">4-Term Loss Convergence per Epoch</span>
+                <span class="chip live">No degenerate compromise</span>
+              </div>
+              <canvas id="lossCanvas" class="chart-canvas" width="550" height="240" role="img" aria-label="Line chart: four-term loss convergence per epoch, all terms decaying monotonically to plateau"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <span class="chart-title">Controlled Injection Test (10m&sup2; &ndash; 80m&sup2;)</span>
+                <span class="chip neutral">Inflection @ ~45 m&sup2;</span>
+              </div>
+              <canvas id="injectionCanvas" class="chart-canvas" width="550" height="240" role="img" aria-label="Line chart: recall versus injected target area, sigmoid inflection at approximately 45 square metres"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <span class="chart-title">Confidence Calibration (Reliability Diagram)</span>
+                <span class="chip neutral">Monotonic precision</span>
+              </div>
+              <canvas id="calibrationCanvas" class="chart-canvas" width="550" height="240" role="img" aria-label="Reliability diagram: observed precision tracks predicted confidence along the diagonal"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <span class="chart-title">Cross-Scale Generalization Stress Test</span>
+                <span class="chip warning">Held-out 20m to 5m degradation</span>
+              </div>
+              <canvas id="crossScaleCanvas" class="chart-canvas" width="550" height="240" role="img" aria-label="Bar chart: Kappa across three scale transitions, held-out domain above the 0.60 target line"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════════
+           TAB 4: PROVENANCE TRACE
+           ═══════════════════════════════════════════════════════════ -->
+      <section id="tabTrace" class="tab-content" role="tabpanel" aria-labelledby="tabTraceBtn" tabindex="0" hidden>
+        <div class="trace-layout">
+          <div class="trace-stages-list stagger-children" role="listbox" aria-label="Pipeline stages">
+            <button class="trace-stage-item active" data-stage="STAGE_PRE" role="option" aria-selected="true">
+              <div class="stage-badge-row">
+                <span class="stage-id">Stage 00</span>
+                <span class="chip live">Pass</span>
+              </div>
+              <span class="stage-title">Pre-Processing &amp; SCL Mask</span>
+              <span class="stage-desc">Baseline-04.00 offset subtraction, cloud/shadow SCL exclusion, histogram matching across dates.</span>
+            </button>
+            <button class="trace-stage-item" data-stage="STAGE_1" role="option" aria-selected="false">
+              <div class="stage-badge-row">
+                <span class="stage-id">Stage 01</span>
+                <span class="chip live">Pass</span>
+              </div>
+              <span class="stage-title">Spectral Change Detection (SAM)</span>
+              <span class="stage-desc">Spectral Angle Mapper between T1 and T2. Invalid cloudy pixels flagged as explicit "NO DATA".</span>
+            </button>
+            <button class="trace-stage-item" data-stage="STAGE_2" role="option" aria-selected="false">
+              <div class="stage-badge-row">
+                <span class="stage-id">Stage 02</span>
+                <span class="chip live">Pass</span>
+              </div>
+              <span class="stage-title">Spectral Unmixing (FCLS)</span>
+              <span class="stage-desc">VCA endmembers (N=5). Batched vectorized FCLS per-pixel. OOD residual test.</span>
+            </button>
+            <button class="trace-stage-item" data-stage="STAGE_3" role="option" aria-selected="false">
+              <div class="stage-badge-row">
+                <span class="stage-id">Stage 03</span>
+                <span class="chip live">Pass</span>
+              </div>
+              <span class="stage-title">Spatial Allocation (50K MLP)</span>
+              <span class="stage-desc">3-layer MLP (~50K params). Input: 3&times;3 neighborhood. Weakly supervised cross-scale transfer.</span>
+            </button>
+            <button class="trace-stage-item" data-stage="STAGE_3B" role="option" aria-selected="false">
+              <div class="stage-badge-row">
+                <span class="stage-id">Stage 03B</span>
+                <span class="chip live">Pass</span>
+              </div>
+              <span class="stage-title">Spatial Refinement (Atkinson)</span>
+              <span class="stage-desc">Atkinson pixel-swapping (5&ndash;10 iterations). Mass conservation verification.</span>
+            </button>
+            <button class="trace-stage-item" data-stage="STAGE_4" role="option" aria-selected="false">
+              <div class="stage-badge-row">
+                <span class="stage-id">Stage 04</span>
+                <span class="chip alert">3 routed to human</span>
+              </div>
+              <span class="stage-title">Validation &amp; Classification</span>
+              <span class="stage-desc">Geometry rules: compact (structure), linear (road), border/isolated (human review queue).</span>
+            </button>
+          </div>
+
+          <!-- Right: JSON Artifact & Audit -->
+          <div class="trace-artifact-panel">
+            <div class="trace-artifact-head">
+              <div>
+                <span class="micro-cap eyebrow-accent">Stage Artifact Telemetry</span>
+                <h3 id="traceArtifactTitle" class="display-md" style="font-size: 16px; margin-top: 4px;">Stage 00 &mdash; Pre-Processing</h3>
+              </div>
+              <span id="traceHashChip" class="chip neutral">Hash: e3b0c442&hellip;991b7852</span>
+            </div>
+
+            <pre id="traceJsonBox" class="json-inspector-box" tabindex="0" aria-label="Stage artifact JSON"></pre>
+
+            <div class="hairline-card">
+              <span class="micro-cap" style="display: block; margin-bottom: 8px;">Audit Override &amp; Human Log</span>
+              <div class="audit-log">
+                <div>Operator: <span class="audit-strong">OP-NTRO-4182</span> &mdash; Tactical Exploitation Unit</div>
+                <div>Last Override: <span class="audit-strong">ALT-2026-0391</span> confirmed as structure. Reason: contiguous with road access arterial.</div>
+                <div>Audit Status: <span class="audit-strong">Fully defused.</span> Auditable signature stored.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         MODE C EVIDENCE SHEET MODAL
+         ═══════════════════════════════════════════════════════════════ -->
+    <div id="evidenceModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="dossierTitle">
+      <div class="modal-container">
+        <div class="modal-header">
+          <div>
+            <span class="micro-cap">Mode C Deliverable &mdash; Evidence Sheet</span>
+            <h3 id="dossierTitle" class="display-md" style="font-size: 15px; margin-top: 3px;">Dossier-NTRO-ALT-2026-0391</h3>
+          </div>
+          <button id="closeModalBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Close</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Print-only masthead: makes the PDF export a real document -->
+          <div class="print-header" aria-hidden="true">
+            <div class="print-org">National Technical Research Organisation</div>
+            <div class="print-class">SUBPIXEL-SENTRY // Evidence Dossier // RESTRICTED</div>
+            <div class="print-stamp" id="printStamp">Generated from local pipeline cache &mdash; no network egress</div>
+          </div>
+
+          <div class="evidence-dossier">
+            <div class="dossier-header-grid">
+              <div class="dossier-field">
+                <span class="dossier-label">Target Coordinate</span>
+                <span class="dossier-value" id="dossierCoord">27.587421&deg; N, 91.861208&deg; E</span>
+              </div>
+              <div class="dossier-field">
+                <span class="dossier-label">Calculated Footprint</span>
+                <span class="dossier-value" id="dossierFootprint">75 m&sup2; (+18.7%)</span>
+              </div>
+              <div class="dossier-field">
+                <span class="dossier-label">Confidence Score</span>
+                <span class="dossier-value value-ok" id="dossierConf">0.91 (Calibrated)</span>
+              </div>
+            </div>
+
+            <div class="dossier-provenance-box">
+              <div class="dossier-box-title">Provenance Block (Chain-of-Custody)</div>
+              <div>Source Tile ID: <span id="dossierTileId">S2A_MSIL2A_20260308T045651_N0400_R019</span></div>
+              <div>Acquisition Dates: T1 = 2026-03-03, T2 = 2026-03-08 (same-season pair)</div>
+              <div>Processing Pipeline: SUBPIXEL-SENTRY v1.0.4-RELEASE (FCLS-MLP-Atkinson)</div>
+              <div>Endmembers: 5 physical classes (VCA on mosaic T45RVP)</div>
+              <div>External Validation: ESA WorldCover 2021 cross-check concordance: 78.6%</div>
+              <div>Mass Conservation Delta: MSE = 0.0084 (&lt; 0.05 pass criterion)</div>
+            </div>
+
+            <div class="hairline-card">
+              <span class="micro-cap" style="display: block; margin-bottom: 6px;">Operational Summary</span>
+              <div id="dossierNotes" class="dossier-notes">
+                Unauthorized compact structure detected in forward border sector. Spectral geometry confirms 1:1 aspect ratio with high SWIR reflectance consistent with corrugated roof material.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="downloadPdfMockBtn" class="button-ghost button-ghost-sm">Download Audit PDF</button>
+          <button id="downloadKmlMockBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Export KML Overlay</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Toast notification region -->
+  <div id="toastRegion" class="toast-region" role="region" aria-live="polite" aria-label="Notifications"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SCRIPTS
+       ═══════════════════════════════════════════════════════════════ -->
+
+  <script src="js/api.js?v=11"></script>
+  <script src="js/sentinel-sim.js?v=11"></script>
+  <script src="js/metrics-charts.js?v=11"></script>
+  <script src="js/three-env.js?v=11"></script>
+  <script src="js/app.js?v=11"></script>
+
+  <!-- Three.js as ES module — imports, creates environment, signals ready -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+    // Expose via a namespace object (THREE itself is frozen)
+    window.THREE = THREE;
+    window.THREE_POST = { EffectComposer, RenderPass, UnrealBloomPass, ShaderPass };
+
+    // Signal ready
+    window.dispatchEvent(new Event('three-ready'));
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", sans-serif;
+  --font-display: "Cormorant Garamond", serif;
+  --font-mono: "Space Mono", monospace;
+
+  --color-void: #05060c;
+  --color-star: #f5f1e6;
+  --color-gold: #e8b96a;
+  --color-nebula: #7c6bd6;
+  --color-line: rgba(245, 241, 230, 0.1);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    cursor: none;
+  }
+
+  body {
+    @apply bg-void text-star font-sans antialiased;
+  }
+
+  @media (pointer: coarse) {
+    html {
+      cursor: auto;
+    }
+  }
+}
+
+@layer components {
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(4px);
+    transition:
+      opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      filter 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal-visible {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(18px); filter: blur(4px); }
+    to { opacity: 1; transform: translateY(0); filter: blur(0); }
+  }
+  .animate-fade-up { animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+  .glass-card {
+    position: relative;
+    background: rgba(245, 241, 230, 0.02);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    box-shadow: inset 0 1px 1px rgba(245, 241, 230, 0.1);
+  }
+  .glass-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1.4px;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(245, 241, 230, 0.45), rgba(245, 241, 230, 0));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .nav-link { position: relative; }
+  .nav-link::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -3px;
+    width: 100%;
+    height: 1px;
+    background: currentColor;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .nav-link:hover::after,
+  .nav-link:focus-visible::after { transform: scaleX(1); }
+
+  .lift-card {
+    transition:
+      transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .lift-card:hover,
+  .lift-card:focus-visible {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px -12px rgba(232, 185, 106, 0.22);
+    border-color: rgba(232, 185, 106, 0.35);
+  }
+
+  .btn-sheen { position: relative; overflow: hidden; }
+  .btn-sheen::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -80%;
+    width: 50%;
+    height: 100%;
+    transform: skewX(-20deg);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+    transition: left 0.55s ease;
+    pointer-events: none;
+  }
+  .btn-sheen:hover::after { left: 130%; }
+
+  .hero-cta { position: relative; overflow: hidden; }
+  .hero-cta::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.3) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: cta-shine 3.8s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes cta-shine {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .tilt-card { transform-style: preserve-3d; will-change: transform; }
+
+  .glow-ring { position: relative; }
+  .glow-ring::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    padding: 1.5px;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(90deg, var(--color-gold), var(--color-nebula));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    box-shadow: 0 0 28px 2px rgba(232, 185, 106, 0.16);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  .glow-ring:hover::after { opacity: 1; }
+
+  /* Watermark breathe */
+  @keyframes logo-breathe {
+    0%, 100% { opacity: 0.04; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 0.07; transform: translate(-50%, -50%) scale(1.02); }
+  }
+  .logo-watermark { animation: logo-breathe 8s ease-in-out infinite; }
+
+  /* Custom cursor: a small ring, no dot — reads as a "targeting" mark,
+     fits an astronomy brand better than the generic dot+ring. */
+  .cursor-ring {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 99999;
+    will-change: transform;
+  }
+  .cursor-ring::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--color-gold);
+    border-radius: 50%;
+    transition: width 0.25s ease, height 0.25s ease, border-color 0.25s ease;
+  }
+  .cursor-ring::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+    width: 3px;
+    height: 3px;
+    background: var(--color-gold);
+    border-radius: 50%;
+  }
+  body.cursor-hovering .cursor-ring::after {
+    width: 32px;
+    height: 32px;
+    border-color: var(--color-nebula);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal, .animate-fade-up {
+    animation: none;
+    transition: none;
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+  .hero-cta::after, .logo-watermark, .btn-sheen::after, .glow-ring::after {
+    animation: none;
+  }
+  .logo-watermark { opacity: 0.03; }
+  .btn-sheen::after { display: none; }
+  .tilt-card { transition: none !important; }
+}
