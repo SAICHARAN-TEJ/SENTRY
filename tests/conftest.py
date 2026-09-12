@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -133,6 +134,9 @@ class FakeDB:
             return row if one else ([row] if row else [])
 
         # --- model registry --------------------------------------------------
+        if "from model_versions" in s and "where id = %s" in s:
+            row = self.models.get(p[0])
+            return row if one else ([row] if row else [])
         if "from model_versions" in s and "where name" in s:
             row = next((m for m in self.models.values() if m["name"] == p[0]), None)
             return row if one else ([row] if row else [])
@@ -180,7 +184,8 @@ class FakeDB:
             row = {"id": self._next_id()}
             self.scenes[row["id"]] = {
                 "id": row["id"], "provider_product_id": p[1],
-                "dataset_source_id": p[0]}
+                "dataset_source_id": p[0], "sensing_time": None,
+                "metadata": {}, "crs": None, "resolution_m": None}
             return row if one else [row]
         if "delete from scene_bands where scene_id" in s:
             self.scene_bands = [b for b in self.scene_bands
@@ -189,9 +194,14 @@ class FakeDB:
         if "insert into scene_bands" in s:
             # params: (scene_id, band_name, native_resolution_m, object_key)
             self.scene_bands.append({"scene_id": p[0], "band_name": p[1],
-                                     "object_key": p[3]})
+                                     "object_key": p[3], "scale_factor": 0.0001})
             row = {"id": self._next_id()}
             return row if one else [row]
+        if "from scene_bands where scene_id = %s" in s:
+            rows = [{"band_name": b["band_name"], "object_key": b["object_key"],
+                     "scale_factor": b.get("scale_factor", 0.0001)}
+                    for b in self.scene_bands if b["scene_id"] == p[0]]
+            return rows if not one else (rows[0] if rows else None)
         if "from scenes where id = %s" in s:
             row = self.scenes.get(p[0])
             return row if one else ([row] if row else [])
@@ -227,7 +237,8 @@ class FakeDB:
                        "input_fingerprint": p[3], "config_hash": p[4],
                        "model_version_id": p[5] if len(p) > 5 else None,
                        "error_code": None, "error_message": None, "created_at": None,
-                       "started_at": None, "completed_at": None, "priority": 100}
+                       "started_at": None, "completed_at": None, "priority": 100,
+                       "attempt": 0, "claim_token": None, "lease_expires_at": None}
                 self.jobs[row["id"]] = row
                 return row if one else [row]
             # Current production SQL includes mode between job_type and status.
@@ -240,19 +251,62 @@ class FakeDB:
                        "input_fingerprint": p[5], "config_hash": p[6],
                        "model_version_id": p[7],
                        "error_code": None, "error_message": None, "created_at": None,
-                       "started_at": None, "completed_at": None, "priority": 100}
+                       "started_at": None, "completed_at": None, "priority": 100,
+                       "attempt": 0, "claim_token": None, "lease_expires_at": None}
             else:
                 row = {"id": self._next_id(), "project_id": p[0], "job_type": p[1],
                    "mode": "reconstruct_validate", "status": "QUEUED", "progress": 0.0,
                    "requested_by": p[2], "idempotency_key": p[3], "input_fingerprint": p[4],
                    "config_hash": p[5], "model_version_id": p[6],
                    "error_code": None, "error_message": None, "created_at": None,
-                   "started_at": None, "completed_at": None, "priority": 100}
+                   "started_at": None, "completed_at": None, "priority": 100,
+                   "attempt": 0, "claim_token": None, "lease_expires_at": None}
             self.jobs[row["id"]] = row
             return row if one else [row]
 
         if "select pg_advisory_xact_lock" in s:
             return {"pg_advisory_xact_lock": True} if one else [{"pg_advisory_xact_lock": True}]
+
+        # --- lease/reaper ---------------------------------------------------
+        # Reaper scan: stale CLAIMED rows (lease_expires_at in the past).
+        if ("from jobs" in s and "lease_expires_at" in s
+                and s.startswith("select") and "for update" in s):
+            now = time.time()
+            rows = [dict(j) for j in self.jobs.values()
+                    if j.get("status") == "CLAIMED"
+                    and j.get("lease_expires_at") is not None
+                    and j["lease_expires_at"] < now]
+            return rows if not one else (rows[0] if rows else None)
+        # Heartbeat renewal: fence on claim_token and non-terminal status.
+        if "update jobs set lease_expires_at" in s:
+            seconds, job_id, token = p[0], p[1], p[2]
+            row = self.jobs.get(job_id)
+            if (row is None or row.get("claim_token") != token
+                    or row.get("status") in {"COMPLETED", "FAILED", "CANCELLED"}):
+                return 0
+            row["lease_expires_at"] = time.time() + float(seconds)
+            return 1
+        # Reaper fail path (attempt >= max): status literal 'FAILED'.
+        if "update jobs" in s and "error_code = 'lease_lost'" in s:
+            row = self.jobs.get(p[1])
+            if row is None or row.get("status") != "CLAIMED":
+                return 0
+            row["status"] = "FAILED"
+            row["error_code"] = "LEASE_LOST"
+            row["error_message"] = p[0]
+            row["claim_token"] = None
+            row["lease_expires_at"] = None
+            row["completed_at"] = "now"
+            return 1
+        # Reaper requeue path: fresh QUEUED with the old holder fenced out.
+        if "update jobs" in s and "set status = 'queued'" in s and "claim_token = null" in s:
+            row = self.jobs.get(p[0])
+            if row is None or row.get("status") != "CLAIMED":
+                return 0
+            row["status"] = "QUEUED"
+            row["claim_token"] = None
+            row["lease_expires_at"] = None
+            return 1
 
         if "from jobs where id = %s" in s and s.startswith("select"):
             row = self.jobs.get(p[0])
@@ -269,8 +323,10 @@ class FakeDB:
 
         if "update jobs set status" in s:
             # The cancel statement has a literal status and only the job id in
-            # params; queue transitions use a parameterized status. Respect
-            # the conditional terminal guard and return the real row count.
+            # params; queue transitions use a parameterized status optionally
+            # fenced by a trailing claim_token:
+            #   [status, ..., job_id, current_status]            (unfenced)
+            #   [status, ..., job_id, current_status, token]     (fenced)
             if "'cancelled'" in s:
                 job_id = p[0] if p else None
                 row = self.jobs.get(job_id)
@@ -282,14 +338,21 @@ class FakeDB:
                 row["completed_at"] = "now"
                 return 1
 
-            job_id = p[-1] if p else None
-            row = self.jobs.get(job_id)
+            if not p:
+                return 0
+            # Fenced writes append a trailing claim_token after current_status.
+            token = p[-1] if len(p) >= 4 and p[-1] not in JOB_STATUSES else None
+            row = self.jobs.get(p[-3] if token is not None else p[-2])
             if row is None:
                 return 0
-            status = p[0] if p and p[0] in JOB_STATUSES else None
+            # Fence first (a failed WHERE changes nothing in real Postgres):
+            # a zombie's stale token must not move a requeued claim.
+            if token is not None and row.get("claim_token") != token:
+                return 0
+            status = p[0] if p[0] in JOB_STATUSES else None
             if status is not None:
                 row["status"] = status
-            if "completed_at = now()" in s:
+            if "completed_at = now()" in s or "coalesce(completed_at" in s:
                 row["completed_at"] = "now"
             return 1
 
@@ -300,6 +363,77 @@ class FakeDB:
             return 1
 
         # --- job steps / inputs ------------------------------------------------
+        # --- job inputs (structured, for worker provenance queries) ----------
+        if "select scene_id from job_inputs where job_id = %s" in s:
+            rows = [{"scene_id": ji["scene_id"]} for ji in self.job_inputs
+                    if ji.get("job_id") == p[0] and ji.get("scene_id")]
+            return rows if not one else (rows[0] if rows else None)
+        if ("from job_inputs ji" in s and "join scenes s" in s
+                and s.startswith("select")):
+            # _input_products: scene provenance ordered by sensing time.
+            rows = []
+            for ji in self.job_inputs:
+                if ji.get("job_id") != p[0] or not ji.get("scene_id"):
+                    continue
+                sc = self.scenes.get(ji["scene_id"], {})
+                rows.append({"provider_product_id": sc.get("provider_product_id"),
+                             "sensing_time": sc.get("sensing_time"),
+                             "metadata": sc.get("metadata") or {}})
+            return rows if not one else (rows[0] if rows else None)
+        if ("from dataset_sources ds" in s and "join job_inputs" in s
+                and s.startswith("select")):
+            # _dataset_versions: distinct (name, version) over the job's scenes.
+            names = {(b["name"], b["version"]) for b in self.dataset_sources.values()}
+            rows = [{"name": n, "version": v} for n, v in sorted(names)]
+            return rows if not one else (rows[0] if rows else None)
+
+        # --- job steps: guarded lifecycle transitions -------------------------
+        if "select status from job_steps where job_id = %s and step_name = %s" in s:
+            row = self.steps.get((p[0], p[1]))
+            return row if one else ([row] if row else [])
+        if "update job_steps" in s:
+            # Cancel-by-job statement: one param, sets every active step.
+            if "status = 'cancelled'" in s:
+                n = 0
+                for (jid, sname), st in self.steps.items():
+                    if jid == p[0] and st["status"] in {"QUEUED", "RUNNING"}:
+                        st["status"] = "CANCELLED"
+                        n += 1
+                return n
+            # Step mutations arrive in two layouts: (job_id, step_name) for
+            # start/skip and (metrics_json, job_id, step_name) for complete.
+            if len(p) >= 3 and isinstance(p[0], str) and p[0].startswith("{"):
+                job_id, step_name = p[1], p[2]
+            else:
+                job_id, step_name = p[0], p[1]
+            step = self.steps.get((job_id, step_name))
+            if step is None:
+                return 0
+            job = self.jobs.get(job_id)
+            if job is not None and job.get("status") in {"COMPLETED", "FAILED",
+                                                        "CANCELLED"}:
+                return 0
+            if "status = 'running'" in s and step["status"] == "QUEUED":
+                step["status"] = "RUNNING"
+                step["attempt"] = step.get("attempt", 0) + 1
+                return 1
+            if "status = 'completed'" in s and step["status"] == "RUNNING":
+                step["status"] = "COMPLETED"
+                step["progress"] = 1
+                if "metrics = %s" in s:
+                    metrics = next((x for x in p
+                                    if isinstance(x, str) and x.startswith("{")), None)
+                    if metrics is not None:
+                        step["metrics"] = metrics
+                return 1
+            if "status = 'failed'" in s and step["status"] in {"QUEUED", "RUNNING"}:
+                step["status"] = "FAILED"
+                return 1
+            if "status = 'skipped'" in s and step["status"] == "QUEUED":
+                step["status"] = "SKIPPED"
+                return 1
+            return 0
+
         if "insert into job_steps" in s:
             self.steps[(p[0], p[1])] = {"status": "QUEUED", "progress": 0.0,
                                         "attempt": 0}
@@ -311,18 +445,53 @@ class FakeDB:
             return rows if not one else (rows[0] if rows else None)
         if "insert into job_inputs" in s or "insert into provenance_events" in s:
             if "insert into job_inputs" in s:
-                self.job_inputs.append({"sql": s, "params": p})
+                entry = {"sql": s, "params": p,
+                         "job_id": p[0] if p else None, "scene_id": None,
+                         "ref_asset_id": None, "role": None,
+                         "object_key_snapshot": None}
+                if "scene_id, role" in s:
+                    entry.update(scene_id=p[1], role="input")
+                elif "ref_asset_id, role" in s:
+                    entry.update(ref_asset_id=p[1], role="reference")
+                elif "role, object_key_snapshot" in s:
+                    entry.update(role="aoi", object_key_snapshot=p[1] if len(p) > 1 else None)
+                self.job_inputs.append(entry)
             else:
                 self.provenance.append({"sql": s, "params": p})
             return None
 
         # --- artifacts -----------------------------------------------------
+        if ("from raster_artifacts" in s and s.startswith("select")
+                and "artifact_type" in s):
+            import re as _re
+            # Honor both parameterized and literal type filters.
+            want_type = p[1] if "artifact_type = %s" in s else None
+            if want_type is None:
+                m = _re.search(r"artifact_type = '([a-z_]+)'", s)
+                want_type = m.group(1) if m else None
+            rows = [a for a in self.artifacts.values()
+                    if a["job_id"] == p[0]
+                    and (want_type is None or a["artifact_type"] == want_type)]
+            if "limit 1" in s and rows:
+                rows = rows[:1]
+            return rows if not one else (rows[0] if rows else None)
         if "from raster_artifacts where job_id = %s" in s and s.startswith("select"):
             rows = [{"id": a["id"], "artifact_type": a["artifact_type"],
                      "storage_bucket": a["storage_bucket"], "object_key": a["object_key"],
                      "checksum": None, "bytes": 1, "media_type": "image/tiff"}
                     for a in self.artifacts.values() if a["job_id"] == p[0]]
             return rows if not one else (rows[0] if rows else None)
+        if "insert into raster_artifacts" in s:
+            # (job_id, artifact_type, bucket, key, checksum, media_type, crs,
+            #  w, h, res, band_count, wkt, wkt, bytes)
+            aid = self._next_id()
+            self.artifacts[aid] = {
+                "id": aid, "job_id": p[0], "artifact_type": p[1],
+                "storage_bucket": p[2], "object_key": p[3],
+                "checksum": p[4], "media_type": p[5], "bytes": p[13],
+                "crs": p[6], "width": p[7], "height": p[8],
+                "resolution_m": p[9], "band_count": p[10]}
+            return {"id": aid} if one else [{"id": aid}]
 
         # --- validation runs -------------------------------------------------
         if "from validation_runs where queue_job_id" in s:

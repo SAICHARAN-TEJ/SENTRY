@@ -4,6 +4,16 @@
  */
 
 class MetricsChartEngine {
+  // Chart series colors, indexed by app.js (mono[0..5]).
+  static palette = [
+    '#4f9cf9', // series 1 — blue
+    '#36c98e', // series 2 — green
+    '#f0b429', // series 3 — amber
+    '#e4574f', // series 4 — red
+    '#9b6ef3', // series 5 — purple
+    'rgba(255, 255, 255, 0.35)', // reference / dashed
+  ];
+
   constructor() {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.colors = {

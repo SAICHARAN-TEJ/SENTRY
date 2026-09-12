@@ -41,7 +41,7 @@ Three model paths exist:
 
 The multi-frame path accepts between 1 and 8 temporal frames of the same tile. There is no hard cap enforced yet; the PRD's frame selector (rank revisits by cloud cover, pick at most 8) is not implemented.
 
-The frontend in `index.html` is a standalone operator console. It currently runs entirely on a built-in simulator and is **not** wired to the backend API. See [Known limitations](#known-limitations).
+The frontend in `index.html` is an operator console with a real backend client: job submission, live job tracking (polling to terminal state), validations, reports, artifact signing, projects, scenes, models and the Copernicus connector all go through `js/api.js` against `/v1` routes with Bearer or dev-header auth. The alerts table, pixel inspector and evidence dossiers remain simulator-backed until a backend alerts domain exists (those methods are marked SIMULATED in `js/api.js`).
 
 ---
 
@@ -49,7 +49,7 @@ The frontend in `index.html` is a standalone operator console. It currently runs
 
 Working today, verified by the test suite:
 
-- Job queue with `FOR UPDATE SKIP LOCKED` claiming, idempotency keys, cancellation.
+- Job queue with `FOR UPDATE SKIP LOCKED` claiming, idempotency keys, cancellation, and crash-safe claims: every claim carries a lease (heartbeat-renewed) and a fencing token, and a reaper requeues or fails abandoned jobs.
 - Copernicus Data Space catalogue search (anonymous) and product download (authenticated, fail-closed without credentials), with MD5 verification against the catalogue before anything is staged.
 - SAFE zip band extraction for both legacy (`_B02.jp2`) and current (`_B02_10m.jp2`) naming layouts, grid cross-checks across bands.
 - Preprocessing, feathered tiling with partition-of-unity stitching, bicubic and multi-frame reconstruction, COG writing with preserved CRS/transform.
@@ -58,9 +58,7 @@ Working today, verified by the test suite:
 
 Not done yet, in rough priority order:
 
-- No lease/heartbeat on claimed jobs: a worker crash leaves the job `CLAIMED` forever.
-- The frontend console does not talk to the backend (different endpoints, no auth headers).
-- No Copernicus-connector-driven frame selector, no bootstrap confidence intervals in benchmarks, no `run_metadata.json` / preview PNG outputs, no LPIPS.
+- No Copernicus-connector-driven frame selector, no bootstrap confidence intervals in benchmarks, no LPIPS.
 - RLS policies are written but the RLS test only runs against a real Postgres.
 
 ---
@@ -76,7 +74,7 @@ SENTRY/
 │   ├── auth.py               Supabase JWT validation, dev header, role checks
 │   ├── errors.py             Stable error codes -> HTTP status mapping
 │   ├── schemas.py            Pydantic request/response models
-│   ├── queue.py              Job claim loop primitives (SKIP LOCKED)
+│   ├── queue.py              Job claims (SKIP LOCKED), lease/heartbeat, reaper
 │   ├── ingest.py             Scene/band registration
 │   ├── supabase_client.py    Auth + storage REST helpers
 │   ├── copernicus.py         CDSE catalogue search, download, SAFE extraction
@@ -92,7 +90,7 @@ SENTRY/
 │   ├── registry.py           Model registry; blocks visual-only models
 │   └── rasterio_io.py        COG read/write, sha256
 ├── supabase/
-│   ├── migrations/           0001..0007: PostGIS, tables, RLS, storage, seeds
+│   ├── migrations/           0001..0009: PostGIS, tables, RLS, storage, seeds, lease, output schema
 │   └── config.toml           Supabase CLI project config
 ├── tests/                    pytest suite (offline; RLS test self-skips)
 ├── scripts/
@@ -205,6 +203,8 @@ ARTIFACT_ROOT=./data/artifacts
 WORKER_CONCURRENCY=1
 MAX_TILE_PIXELS=4194304
 VALIDATION_PROTOCOL_VERSION=sih26142_v1
+JOB_LEASE_SECONDS=300    # claim lease; heartbeat renews at lease/3
+JOB_MAX_ATTEMPTS=3       # reaper requeues until this, then fails LEASE_LOST
 
 # --- Provenance stamping ---
 CODE_COMMIT=
@@ -241,8 +241,11 @@ python scripts/smoke_e2e.py
 # API server (http://localhost:8000, docs at /docs)
 uvicorn backend.main:app --reload
 
-# Worker loop (claims and executes jobs)
+# Worker loop (claims and executes jobs; heartbeat-renewed lease per claim)
 python -m worker.main
+
+# Cron-friendly stale-claim sweep (usually unnecessary: idle workers reap)
+python -m worker.main --reap-stale
 
 # Test suite
 python -m pytest -q
@@ -270,6 +273,8 @@ Set via environment variables or `.env` (pydantic-settings, `env_file=".env"`).
 | `WORKER_CONCURRENCY` | `1` | Concurrent jobs per worker process |
 | `MAX_TILE_PIXELS` | `4194304` | Tile pixel budget per job |
 | `VALIDATION_PROTOCOL_VERSION` | `sih26142_v1` | Stamped on every validation run and report |
+| `JOB_LEASE_SECONDS` | `300` | Claim lease duration. A worker heartbeat renews it at lease/3; a claim whose lease lapses is stale and gets reaped |
+| `JOB_MAX_ATTEMPTS` | `3` | Requeue budget for reaped claims; beyond this the job fails permanently with `LEASE_LOST` |
 | `CODE_COMMIT` | empty | Git revision stamped into provenance records |
 | `WORKER_IMAGE` | empty | Worker image digest stamped into provenance records |
 
@@ -298,7 +303,7 @@ Errors always come back as:
 {"error": {"code": "STABLE_CODE", "message": "human-readable detail"}}
 ```
 
-Stable codes: `INVALID_AOI`, `SCENE_NOT_FOUND`, `DATA_CORRUPT`, `MODEL_UNAVAILABLE`, `GPU_OOM`, `VALIDATION_INCOMPLETE`, `ARTIFACT_WRITE_FAILED`, `AUTH_FORBIDDEN`, `JOB_CONFLICT`, `NOT_FOUND`, `QUALITY_FAIL`.
+Stable codes: `INVALID_AOI`, `SCENE_NOT_FOUND`, `DATA_CORRUPT`, `MODEL_UNAVAILABLE`, `GPU_OOM`, `VALIDATION_INCOMPLETE`, `ARTIFACT_WRITE_FAILED`, `AUTH_FORBIDDEN`, `JOB_CONFLICT`, `NOT_FOUND`, `QUALITY_FAIL`, `LEASE_LOST`.
 
 Authentication: `Authorization: Bearer <Supabase JWT>` in production. In local development with `DEV_AUTH=true`, an `X-Dev-User: <user-id>` header is accepted instead.
 
@@ -313,6 +318,9 @@ Per reconstruct-validate job, under `ARTIFACT_ROOT`:
 | `sr.tif` | Cloud-Optimized GeoTIFF | 4 bands (B02, B03, B04, B08) at 2.5 m, original CRS, transform divided by 4 |
 | `uncertainty.tif` | COG | Per-pixel uncertainty on the same grid (currently gradient-magnitude proxy) |
 | `report.json` | JSON | Metrics, decision, protocol version, evidence references |
+| `preview_rgb.png` | PNG | True-color (B04/B03/B02) **visualization** of the SR output with a "model-inferred detail" caption; fixed 2–98% stretch over valid pixels |
+| `preview_false_color.png` | PNG | False-color (NIR/R/G = B08/B04/B03) **visualization**, same stretch and labeling |
+| `run_metadata.json` | JSON | Traceability: input product IDs + sensing times, tile/baseline, model + version, CRS/grid, code commit, config hash, device, runtime |
 | `tiles.npz` | npz | Preprocessed reflectance + validity + provenance fingerprint |
 | `manifest.json` | JSON | Tile counts, grid, fingerprint, frame count |
 
@@ -355,21 +363,21 @@ Lands in `data/worldstrat/`, `data/opensr/`, and `data/copernicus/` respectively
 
 Honest list, so nobody has to discover these the hard way:
 
-1. **Stuck CLAIMED jobs.** There is no lease, heartbeat, or reaper. If a worker dies mid-job, the job stays `CLAIMED` forever and is invisible to idempotency checks. Needs a `started_at` visibility timeout.
-2. **Frontend is not integrated.** `js/api.js` targets endpoints that do not exist on this backend and sends no auth credentials. The console silently falls back to its internal simulator, so it looks functional while being disconnected.
-3. **RLS is untested in CI.** `tests/test_rls.py` needs a live Postgres and self-skips otherwise; the policies in migration `0004_rls.sql` have not been exercised against real roles.
-4. **Uncertainty is a proxy**, not a probabilistic posterior. Labeled as such, but the PRD's diffusion-sampling uncertainty is not implemented.
-5. **No frame selector.** The worker consumes whatever scenes a job references; nothing ranks revisits by cloud cover or caps frames at 8.
-6. **Benchmark is thin.** Scores one tile against the downsampled observation with PSNR/SSIM/RMSE only. No SAM/ERGAS, no held-out AOI set, no bootstrap confidence intervals yet.
-7. **Missing PRD output files.** `run_metadata.json`, `preview_rgb.png`, and `preview_false_color.png` are specified but not written.
-8. **Metric rows flatten caution.** Per-metric `pass` flags in persisted validation rows mean "run was not FAIL", so an individual metric can be recorded as passing while the overall decision is CAUTION.
+1. **Frontend integration is partial.** `js/api.js` speaks the real `/v1` API (jobs with live polling, validations, reports, artifacts, Copernicus) and shows a live/simulator badge; but Run Pipeline needs `SentryAPI.setToken(<jwt>)` or `setDevUser(<uuid>)` plus `setProjectId(...)` configured from the browser, and the alerts/pixel-inspector/dossier screens are still simulated — the backend has no alerts domain.
+2. **RLS is untested in CI.** `tests/test_rls.py` needs a live Postgres and self-skips otherwise; the policies in migration `0004_rls.sql` have not been exercised against real roles.
+3. **Uncertainty is a proxy**, not a probabilistic posterior. Labeled as such, but the PRD's diffusion-sampling uncertainty is not implemented.
+4. **No frame selector.** The worker consumes whatever scenes a job references; nothing ranks revisits by cloud cover or caps frames at 8.
+5. **Benchmark is thin.** Scores one tile against the downsampled observation with PSNR/SSIM/RMSE only. No SAM/ERGAS, no held-out AOI set, no bootstrap confidence intervals yet.
+6. **Metric rows flatten caution.** Per-metric `pass` flags in persisted validation rows mean "run was not FAIL", so an individual metric can be recorded as passing while the overall decision is CAUTION.
+7. **Lease mechanics are untested against real Postgres.** Migration `0008_job_lease.sql` and the reaper's `SKIP LOCKED` transaction are covered by the FakeDB test double; concurrency behavior under live Postgres (two workers racing a requeue) has not been exercised yet.
+8. **Previews stretch, they do not calibrate.** `preview_rgb.png`/`preview_false_color.png` use a fixed robust percentile stretch for viewing; they are visualizations, never data products — analyze `sr.tif`, not the PNGs.
 
 ---
 
 ## Testing
 
 ```bash
-python -m pytest -q          # currently 59 passed, 1 skipped
+python -m pytest -q          # currently 77 passed, 1 skipped
 ```
 
 The skip is `test_rls.py`, which needs a live Postgres. Everything else is offline and deterministic: fixtures are synthetic rasters, HTTP calls to CDSE are monkeypatched, and the smoke test exercises the real pipeline code paths end-to-end without a database.

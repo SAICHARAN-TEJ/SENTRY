@@ -131,6 +131,30 @@
       }, ttl);
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // 4b. BACKEND CONNECTION — live vs simulated badge
+    // ═══════════════════════════════════════════════════════════
+    const connChip = document.createElement('span');
+    connChip.id = 'backendConnChip';
+    connChip.className = 'chip neutral';
+    connChip.textContent = 'Backend: checking…';
+    const headerRight = document.querySelector('.header-right');
+    if (headerRight) headerRight.prepend(connChip);
+
+    window.addEventListener('sentry-connection', (e) => {
+      const d = e.detail || {};
+      if (d.connected) {
+        connChip.textContent = 'Backend: live';
+        connChip.className = 'chip live';
+        connChip.title = `db=${d.health?.db} storage=${d.health?.storage} protocol=${d.health?.protocol_version}`;
+      } else {
+        connChip.textContent = 'Simulator (no backend)';
+        connChip.className = 'chip alert';
+        connChip.title = d.error || 'backend unreachable';
+      }
+    });
+    api.connect();
+
     // ═══════════════════════════════════════════════════════════════
     // 5. SENTINEL SIMULATOR
     // ═══════════════════════════════════════════════════════════════
@@ -426,6 +450,9 @@
     async function openDossier(alertId) {
       const alert = allAlerts.find(a => a.id === alertId) || allAlerts[0];
       const dossier = await api.getEvidenceDossier(alertId);
+      if (dossier && dossier.simulated) {
+        toast('Dossier content is simulated — real reports: SentryAPI.getReport(id)', 'warn', 4200);
+      }
       lastFocused = document.activeElement;
 
       const title = document.getElementById('dossierTitle');
@@ -536,16 +563,79 @@
 
     if (runBtn) {
       runBtn.addEventListener('click', async () => {
-        const aoiId = document.getElementById('aoiSelect')?.value || 'AOI_01';
-
         runBtn.disabled = true;
         runBtn.textContent = 'Running…';
 
-        const stageLabels = [
-          'Stage 0: Pre-Processing', 'Stage 1: SAM Detection', 'Stage 2: FCLS Unmixing',
-          'Stage 3: MLP Allocation', 'Stage 3B: Atkinson Refine', 'Stage 4: Validation'
-        ];
+        // LIVE: submit a real backend job and poll it to a terminal state.
+        if (api.isLiveConnected) {
+          if (!api.isLikelyConfigured()) {
+            toast('Backend is live but unauthenticated — set SentryAPI.setToken(<jwt>) ' +
+                  'or setDevUser(<uuid>) (DEV_AUTH=true) to run real jobs', 'warn', 6000);
+            runBtn.disabled = false;
+            runBtn.textContent = 'Run Pipeline';
+            return;
+          }
+          if (!api.projectId) {
+            toast('Live mode: set a project first — SentryAPI.setProjectId("<project uuid>")', 'warn', 6000);
+            runBtn.disabled = false;
+            runBtn.textContent = 'Run Pipeline';
+            return;
+          }
+          let lastStage = null;
+          const stepLabels = {
+            preprocess: 'Job: pre-processing',
+            reconstruct: 'Job: reconstructing',
+            uncertainty: 'Job: uncertainty',
+            validate: 'Job: validating',
+            report: 'Job: reporting',
+          };
+          const setStage = (key, label) => {
+            if (!key || key === lastStage) return;
+            lastStage = key;
+            if (statusChip) {
+              statusChip.textContent = label;
+              statusChip.className = 'chip warning is-pulsing';
+            }
+            highlightTraceStage(key);
+          };
+          try {
+            const job = await api.runPipeline({
+              onProgress: (p) => setStage(p.stageKey, stepLabels[p.currentStep] || `Job: ${p.status}`),
+            });
+            if (statusChip) {
+              statusChip.textContent = `Job: ${job.status}`;
+              statusChip.className = 'chip live';
+            }
+            if (traceTitle) traceTitle.textContent = `Job ${job.id.slice(0, 8)}`;
+            if (traceJson) {
+              traceJson.textContent = JSON.stringify({
+                job_id: job.id, status: job.status, steps: job.steps,
+                artifacts: job.artifacts, validation_id: job.validation_id,
+              }, null, 2);
+            }
+            if (traceHash) {
+              traceHash.textContent = `Validation: ${job.validation_id || 'none'}`;
+            }
+            toast(`Job ${job.id.slice(0, 8)} completed — ${job.artifacts.length} artifact(s) registered`);
+          } catch (err) {
+            if (statusChip) {
+              statusChip.textContent = 'Job: failed';
+              statusChip.className = 'chip alert';
+            }
+            toast(`Job failed: ${err.code || ''} ${err.message || err}`.trim(), 'warn', 6500);
+          } finally {
+            runBtn.disabled = false;
+            runBtn.textContent = 'Run Pipeline';
+          }
+          return;
+        }
 
+        // SIMULATED: demo timings only — no backend job is created.
+        if (statusChip) statusChip.textContent = 'Simulator run (demo only)';
+        const stageLabels = [
+          'Sim Stage 0: Pre-Processing', 'Sim Stage 1: SAM Detection', 'Sim Stage 2: FCLS Unmixing',
+          'Sim Stage 3: MLP Allocation', 'Sim Stage 3B: Atkinson Refine', 'Sim Stage 4: Validation'
+        ];
         for (let i = 0; i < STAGE_KEYS.length; i++) {
           if (statusChip) {
             statusChip.textContent = stageLabels[i];
@@ -554,17 +644,13 @@
           highlightTraceStage(STAGE_KEYS[i]);
           await new Promise(r => setTimeout(r, reducedMotion ? 120 : 550));
         }
-
         if (statusChip) {
-          statusChip.textContent = 'Pipeline: Complete';
+          statusChip.textContent = 'Simulator: complete (no backend job)';
           statusChip.className = 'chip live';
         }
         runBtn.disabled = false;
         runBtn.textContent = 'Run Pipeline';
-
-        await loadAlerts();
-        sim.setAOI(aoiId);
-        toast('Pipeline complete — 6 stages passed, 3 routed to human review');
+        toast('Simulated run — connect a backend for real pipeline execution', 'warn', 4500);
       });
     }
 

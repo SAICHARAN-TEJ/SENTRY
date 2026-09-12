@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,8 @@ from backend.queue import (complete_job_step, set_job_status, skip_job_step,
 from backend.validation import engine, runner as validation_runner
 from worker import baselines, rasterio_io, tiling
 from worker import preprocess as preprocess_mod
+from worker.job_outputs import (build_run_metadata, write_previews,
+                                write_run_metadata)
 from worker.registry import MODEL_REGISTRY
 
 log = logging.getLogger("sentry.worker")
@@ -449,8 +453,11 @@ def _upscale_weight(weight: Any, scale: int) -> Any:
 
     if weight is None:
         return None  # stitcher substitutes uniform weights
+    # Boolean validity masks cannot be anti-aliased (skimage raises); smooth
+    # float weights (feather windows) can and should be.
+    anti_aliasing = not np.issubdtype(np.asarray(weight).dtype, np.bool_)
     return _resize(weight, (weight.shape[0] * scale, weight.shape[1] * scale),
-                   anti_aliasing=True, preserve_range=True).astype(np.float32)
+                   anti_aliasing=anti_aliasing, preserve_range=True).astype(np.float32)
 
 
 def _sr_weight(tile: dict, scale: int) -> np.ndarray | None:
@@ -462,9 +469,43 @@ def _sr_weight(tile: dict, scale: int) -> np.ndarray | None:
     return valid if feather is None else feather * valid
 
 
+def _input_products(job_id: str) -> list[dict]:
+    """Product provenance for run_metadata.json: one row per staged input scene.
+
+    Reads what the ingest path actually recorded (provider product id, sensing
+    time, tile id, processing baseline) — never inferred or defaulted.
+    """
+    rows = db.query(
+        """
+        select s.provider_product_id, s.sensing_time, s.metadata
+          from job_inputs ji
+          join scenes s on s.id = ji.scene_id
+         where ji.job_id = %s and ji.scene_id is not null
+         order by s.sensing_time asc nulls last
+        """,
+        (job_id,)) or []
+    products = []
+    for r in rows:
+        meta = r.get("metadata") or {}
+        if isinstance(meta, str):  # psycopg returns jsonb as dict; be tolerant
+            try:
+                meta = json.loads(meta)
+            except (TypeError, ValueError):
+                meta = {}
+        products.append({
+            "provider_product_id": r.get("provider_product_id"),
+            "sensing_time": r.get("sensing_time"),
+            "tile_id": meta.get("tile_id"),
+            "processing_baseline": meta.get("processing_baseline"),
+        })
+    return products
+
+
 def _run_reconstruct(job: dict) -> list[dict]:
     """Run the selected model; write SR + uncertainty; validation must pass."""
     store = ArtifactStore(job)
+    started_utc = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    t0 = time.monotonic()
     set_job_status(job["id"], "PREPROCESSING", progress=0.05)
     start_job_step(job["id"], "preprocess")
     frames = _load_scene_frames(job["id"])
@@ -521,11 +562,37 @@ def _run_reconstruct(job: dict) -> list[dict]:
                              store.object_key("uncertainty", "uncertainty.tif"),
                              crs, w * SCALE, h * SCALE, 2.5, sr_transform)
     complete_job_step(job["id"], "uncertainty", {"proxy": "gradient_magnitude_p99"})
+
+    # PRD §11 outputs: previews + run metadata (visualization only, never data).
+    previews = write_previews(
+        stitched, np.ones((h * SCALE, w * SCALE), dtype=bool),
+        store.local_dir("previews", "preview_rgb"),
+        false_color_dir=store.local_dir("previews", "preview_false_color"))
+    rgb_art = store.register(
+        "preview_rgb", "previews", previews["preview_rgb.png"]["path"],
+        store.object_key("preview_rgb", "preview_rgb.png"),
+        media_type="image/png", band_count=3)
+    fcv_art = store.register(
+        "preview_false_color", "previews", previews["preview_false_color.png"]["path"],
+        store.object_key("preview_false_color", "preview_false_color.png"),
+        media_type="image/png", band_count=3)
+    fc_meta = store.local_dir("previews", "run_metadata") / "run_metadata.json"
+    meta_payload = build_run_metadata(
+        job, model_name=model_name, crs=crs, transform=sr_transform, grid_m=2.5,
+        input_products=_input_products(job["id"]), frame_count=len(frames),
+        sampling_steps=None, runtime_s=time.monotonic() - t0,
+        started_utc=started_utc)
+    write_run_metadata(fc_meta, meta_payload)
+    meta_art = store.register(
+        "run_metadata", "previews", fc_meta,
+        store.object_key("run_metadata", "run_metadata.json"),
+        media_type="application/json", band_count=None)
+
     if job.get("mode") != "reconstruct_validate":
         # Pure reconstruct: no validation/report steps exist for this mode.
         _finish_steps(job["id"], ["preprocess", "reconstruct", "uncertainty"])
         set_job_status(job["id"], "COMPLETED", progress=1.0)
-        return [sr_art, unc_art]
+        return [sr_art, unc_art, rgb_art, fcv_art, meta_art]
     set_job_status(job["id"], "VALIDATING", progress=0.7)
 
     # Validation is mandatory for reconstruct_validate jobs; failure fails the job (#8).
@@ -560,7 +627,7 @@ def _run_reconstruct(job: dict) -> list[dict]:
     _finish_steps(job["id"], ["preprocess", "reconstruct", "uncertainty",
                                "validate", "report"])
     set_job_status(job["id"], "COMPLETED", progress=1.0)
-    return [sr_art, unc_art]
+    return [sr_art, unc_art, rgb_art, fcv_art, meta_art]
 
 
 def _observation_for(job: dict, store: ArtifactStore, frames: list[dict]) -> Path:

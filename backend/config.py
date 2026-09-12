@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # Catalogue SEARCH stays anonymous — credentials never gate discovery.
     copernicus_username: str = ""
     copernicus_password: str = ""
+    # Job lease / reaper: CLAIMED jobs hold a lease that must be renewed by a
+    # worker heartbeat. A claim whose lease has lapsed is stale (worker died);
+    # the reaper requeues it until JOB_MAX_ATTEMPTS, then fails it permanently.
+    job_lease_seconds: int = 300
+    job_max_attempts: int = 3
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
