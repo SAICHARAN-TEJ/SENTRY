@@ -1,0 +1,13 @@
+# SIH26142 "Sentry" - Supabase CLI configuration.
+# Minimal local-development scaffold; CLI defaults apply for omitted fields.
+
+project_id = "sih26142-sentry"
+
+[api]
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+port = 54323

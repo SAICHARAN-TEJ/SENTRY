@@ -1,0 +1,26 @@
+# Supabase itself is NOT composed here: run it via the Supabase CLI locally
+# (supabase start) or point .env at a managed project.
+services:
+  api:
+    build: .
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+
+  cpu-worker:
+    build: .
+    command: python -m worker.main
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+
+  gpu-worker:
+    build: .
+    command: python -m worker.main
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    profiles: ["gpu"]

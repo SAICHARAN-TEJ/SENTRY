@@ -1,0 +1,1 @@
+-- Seeding lives in migrations/0006_seed.sql (applied by supabase db reset).

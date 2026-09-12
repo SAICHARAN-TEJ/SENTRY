@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
+psycopg[binary,pool]
+rasterio
+shapely
+pyproj
+numpy
+scikit-image
+pytest
