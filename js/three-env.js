@@ -132,6 +132,7 @@ class SentryEnvironment {
     // 2. High-Altitude Cold Ambient Fill (Diffuse blue sky reflection)
     const hemiLight = new THREE.HemisphereLight(0x2a3b5c, 0x020204, 0.45);
     this.scene.add(hemiLight);
+    this._hemiLight = hemiLight;
 
     // 3. Counter-light for deep shadowed gorge fill
     const gorgeFill = new THREE.DirectionalLight(0x182436, 0.4);
@@ -145,7 +146,7 @@ class SentryEnvironment {
     const segments = 220;
 
     const diffuse = loader.load('/assets/terrain_diffuse.jpg');
-    const height = loader.load('/assets/terrain_height.jpg');
+    const height = loader.load('/assets/terrain_height.jpg', (t) => this._buildHypsometry(t));
     const normal = loader.load('/assets/terrain_normal.jpg');
 
     diffuse.colorSpace = THREE.SRGBColorSpace;
@@ -231,6 +232,58 @@ class SentryEnvironment {
     this.waterMesh = new THREE.Mesh(waterGeo, waterMat);
     this.waterMesh.position.y = -1.8;
     this.scene.add(this.waterMesh);
+  }
+
+  /**
+   * Hypsometric tinting from the heightmap: paints each terrain vertex with
+   * an elevation ramp (gorge → forest → rock → snow) so the docked panel view
+   * reads as a tactical elevation map instead of monochrome rock noise.
+   * Pure visualization — the backdrop keeps its photographic diffuse map.
+   */
+  _buildHypsometry(heightTex) {
+    const img = heightTex.image;
+    if (!img || !img.width || !this.terrainMesh) return;
+    const cnv = document.createElement('canvas');
+    cnv.width = img.width; cnv.height = img.height;
+    const ctx = cnv.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    let data;
+    try { data = ctx.getImageData(0, 0, img.width, img.height).data; } catch (e) { return; }
+
+    const stops = [
+      [0.00, 0x1b2f4b], // deep gorge slate
+      [0.25, 0x2e5339], // valley forest
+      [0.45, 0x6b7a3a], // low scrub
+      [0.62, 0x9c8a52], // alpine soil
+      [0.78, 0x8c8578], // bare rock
+      [0.90, 0xd8d8d2], // scree
+      [1.00, 0xf4f6f8]  // snow cap
+    ].map(([t, c]) => [t, new THREE.Color(c)]);
+
+    const geo = this.terrainMesh.geometry;
+    const pos = geo.attributes.position;
+    const uv = geo.attributes.uv;
+    const colors = new Float32Array(pos.count * 3);
+    const sample = (u, v) => {
+      const x = Math.min(img.width - 1, Math.max(0, Math.round(u * (img.width - 1))));
+      const y = Math.min(img.height - 1, Math.max(0, Math.round((1 - v) * (img.height - 1))));
+      return data[(y * img.width + x) * 4] / 255; // red channel carries height
+    };
+
+    for (let i = 0; i < pos.count; i++) {
+      const h = sample(uv.getX(i), uv.getY(i));
+      let c = stops[stops.length - 1][1];
+      for (let s = 0; s < stops.length - 1; s++) {
+        if (h >= stops[s][0] && h <= stops[s + 1][0]) {
+          const f = (h - stops[s][0]) / ((stops[s + 1][0] - stops[s][0]) || 1);
+          c = stops[s][1].clone().lerp(stops[s + 1][1], f);
+          break;
+        }
+      }
+      colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    this._hypsometryReady = true;
   }
 
   _buildSentinel2Satellite() {
@@ -616,6 +669,11 @@ class SentryEnvironment {
    * Dock the WebGL canvas inside the map panel (3D Tactical DEM mode).
    * The canvas node is moved in the DOM — the WebGL context survives a
    * reparenting, and the renderer resizes to the panel's box.
+   *
+   * Readability: the backdrop framing (grazing angle, dim sun, tight fog)
+   * is illegible at panel scale, so docking also switches to an inspection
+   * profile — high sun, wide-spread fog, level camera looking straight down
+   * at the active sector. undock() restores the cinematic backdrop exactly.
    */
   dockIn(container) {
     if (!this.canvas || !container) return;
@@ -625,6 +683,59 @@ class SentryEnvironment {
     this.canvas.classList.add('docked');
     this.dockedEl = container;
     this._resizeToHost();
+    if (!this._backdropProfile) {
+      // One-time snapshot of the backdrop look, for faithful restore.
+      this._backdropProfile = {
+        sun: this.sunLight.intensity,
+        hemi: this._hemiLight ? this._hemiLight.intensity : null,
+        exposure: this.renderer.toneMappingExposure,
+        fogDensity: this.scene.fog ? this.scene.fog.density : null
+      };
+    }
+    this._applyInspectionProfile();
+    // Switch the terrain to the hypsometric elevation ramp while docked.
+    if (this._hypsometryReady && this.terrainMesh) {
+      const m = this.terrainMesh.material;
+      if (!m.userData._backdropMap) m.userData._backdropMap = m.map;
+      m.map = null;
+      m.vertexColors = true;
+      m.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Bright, legible settings for the docked panel view: lifted sun, heavy
+   * hemisphere fill (opens the shadowed valleys), higher exposure, fog spread
+   * 8x so distant terrain reads instead of vanishing, and a steep high-oblique
+   * camera framed on the active sector — a map-like read, not a cliff wall.
+   */
+  _applyInspectionProfile() {
+    this.sunLight.intensity = this._backdropProfile.sun * 1.3;
+    if (this._hemiLight) this._hemiLight.intensity = this._backdropProfile.hemi * 4.0;
+    this.renderer.toneMappingExposure = this._backdropProfile.exposure * 1.2;
+    if (this.scene.fog) this.scene.fog.density = this._backdropProfile.fogDensity / 8;
+
+    // Soften vertical relief while docked: full 14x displacement reads as
+    // needle spikes at panel scale; ~55% keeps the ridgelines legible.
+    const m = this.terrainMesh ? this.terrainMesh.material : null;
+    if (m && m.displacementMap) {
+      if (m.userData._backdropDispScale === undefined) m.userData._backdropDispScale = m.displacementScale;
+      m.displacementScale = m.userData._backdropDispScale * 0.55;
+    }
+
+    const wp = this.sectorWaypoints[this.activeAoi] || this.sectorWaypoints[Object.keys(this.sectorWaypoints)[0]];
+    if (wp) {
+      this.desiredTarget.copy(wp.target);
+      if (this.groundSwath) {
+        this.groundSwath.position.x = wp.target.x;
+        this.groundSwath.position.z = wp.target.z;
+      }
+      // Steep tactical inspection framing: ~64° down — a map-like read.
+      this.spherical.radius = 110;
+      this.spherical.phi = 0.5;
+      this._updateSphericalPosition();
+    }
+    if (this.controls && this.controls.target) this.controls.target.copy(this.desiredTarget);
   }
 
   /**
@@ -638,6 +749,24 @@ class SentryEnvironment {
     }
     this.dockedEl = null;
     this._resizeToHost();
+    if (this._backdropProfile) {
+      this.sunLight.intensity = this._backdropProfile.sun;
+      if (this._hemiLight) this._hemiLight.intensity = this._backdropProfile.hemi;
+      this.renderer.toneMappingExposure = this._backdropProfile.exposure;
+      if (this.scene.fog) this.scene.fog.density = this._backdropProfile.fogDensity;
+    }
+    // Restore the photographic backdrop material.
+    if (this.terrainMesh) {
+      const m = this.terrainMesh.material;
+      if (m.userData._backdropMap) {
+        m.map = m.userData._backdropMap;
+        m.vertexColors = false;
+        m.needsUpdate = true;
+      }
+      if (m.userData._backdropDispScale !== undefined) {
+        m.displacementScale = m.userData._backdropDispScale;
+      }
+    }
   }
 
   /**

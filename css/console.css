@@ -211,8 +211,17 @@ input.console-select:focus {
 }
 
 .console-select option {
-  background: var(--canvas-panel);
-  color: var(--ink-bright);
+  /* Native option popup colors: these must be literal values, not theme
+     variables — the popup renders in a native menu where unresolved vars
+     fall back to white-on-white. `color-scheme: dark` on <html> tells the
+     UA to draw the popup dark, but the explicit colors are the guarantee. */
+  background-color: #0b0d10;
+  color: #ececf1;
+}
+.console-select option:checked,
+.console-select option:hover {
+  background-color: #1d232b;
+  color: #ffffff;
 }
 
 /* ── TAB NAV ─────────────────────────────────────────────────────── */
@@ -403,6 +412,24 @@ input.console-select:focus {
   width: 100%;
   height: 100%;
   cursor: crosshair;
+}
+
+/* In 3D mode the stage is hidden to conceal the SRM canvases, but the 3D
+   HUD lives inside it — visibility cascades, so the HUD must re-enable its
+   own visibility to stay readable above the docked WebGL canvas. */
+.mode-3d-active .srm-canvas-stage .hud-3d {
+  visibility: visible;
+  z-index: 30;
+}
+
+/* Docked WebGL canvas: fills the map panel behind the HUD overlays. */
+.mode-3d-active #threeCanvas,
+#threeCanvas.docked {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
 }
 
 .srm-canvas {

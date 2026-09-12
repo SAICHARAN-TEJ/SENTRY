@@ -95,6 +95,7 @@
     try {
       if (window.THREE && window.SentryEnvironment) {
         sentryEnv = new SentryEnvironment('threeCanvas');
+        window.SentryEnv = sentryEnv; // dev/diagnostics handle (like SentryAPI)
       }
     } catch (e) {
       console.warn('Three.js env init failed:', e);
@@ -255,6 +256,11 @@
 
     let activeView = 'SPLIT';
 
+    // View modes are mutually exclusive, like radio buttons.
+    //   SPLIT  — 10m (left) vs 2.5m (right) with slider + both chips
+    //   COARSE — full-frame 10m Sentinel-2; 2.5m layer clipped away
+    //   FINE   — full-frame 2.5m resolved; 10m layer underneath
+    //   3D     — docked WebGL terrain; SRM stage hidden entirely
     function setView(view) {
       const fine = document.getElementById('canvasFine');
       const line = document.getElementById('sliderLine');
@@ -283,18 +289,31 @@
         if (sentryEnv) sentryEnv.undock();
         if (container) container.classList.remove('mode-3d-active');
         if (stage) stage.style.visibility = '';
-        if (hudL) hudL.hidden = false;
-        if (hudR) hudR.hidden = false;
         if (hud3d) hud3d.hidden = true;
+
+        // Which layer stays visible is decided once, per mode — no leftover
+        // clip from the previous mode can survive.
         if (view === 'COARSE') {
-          fine.style.clipPath = 'inset(0 100% 0 0)';
-          line.style.display = 'none'; handle.style.display = 'none';
+          // 10M Sentinel-2: resolved layer fully clipped away.
+          if (fine) fine.style.clipPath = 'inset(0 100% 0 0)';
+          if (line) line.style.display = 'none';
+          if (handle) handle.style.display = 'none';
+          if (hudL) { hudL.hidden = false; hudL.querySelector('.hud-title').textContent = '10m Sentinel-2 L2A (input)'; }
+          if (hudR) hudR.hidden = true;
         } else if (view === 'FINE') {
-          fine.style.clipPath = 'inset(0 0 0 0)';
-          line.style.display = 'none'; handle.style.display = 'none';
+          // 2.5M Resolved: resolved layer fully revealed.
+          if (fine) fine.style.clipPath = 'inset(0 0 0 0)';
+          if (line) line.style.display = 'none';
+          if (handle) handle.style.display = 'none';
+          if (hudL) hudL.hidden = true;
+          if (hudR) { hudR.hidden = false; hudR.querySelector('.hud-title').textContent = '2.5m Super-Resolved (model-inferred)'; }
         } else {
-          fine.style.clipPath = 'inset(0 50% 0 0)';
-          line.style.display = ''; handle.style.display = '';
+          // SPLIT: half/half with slider + both source chips.
+          if (fine) fine.style.clipPath = 'inset(0 50% 0 0)';
+          if (line) line.style.display = '';
+          if (handle) handle.style.display = '';
+          if (hudL) { hudL.hidden = false; hudL.querySelector('.hud-title').textContent = 'Left: 10m Sentinel-2 L2A'; }
+          if (hudR) { hudR.hidden = false; hudR.querySelector('.hud-title').textContent = 'Right: 2.5m Super-Resolved'; }
           sim.updateSplitPosition(50);
         }
       }
