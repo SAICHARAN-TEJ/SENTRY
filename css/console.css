@@ -84,6 +84,22 @@
   display: block;
 }
 
+/* Docked inside the map panel for 3D Tactical DEM mode: the canvas is
+   reparented into .map-canvas-container and fills the panel instead of
+   sitting behind the whole console. */
+#threeCanvas.docked {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+#threeCanvas.docked:active {
+  cursor: grabbing;
+}
+
 /* ── APP SHELL ────────────────────────────────────────────────────── */
 .console-app {
   position: relative;

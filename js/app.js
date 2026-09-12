@@ -253,21 +253,52 @@
     // ═══════════════════════════════════════════════════════════════
     const viewToggleBtns = document.querySelectorAll('.map-toggle-btn');
 
+    let activeView = 'SPLIT';
+
     function setView(view) {
       const fine = document.getElementById('canvasFine');
       const line = document.getElementById('sliderLine');
       const handle = document.getElementById('sliderHandle');
-      if (view === 'COARSE') {
-        fine.style.clipPath = 'inset(0 100% 0 0)';
-        line.style.display = 'none'; handle.style.display = 'none';
-      } else if (view === 'FINE') {
-        fine.style.clipPath = 'inset(0 0 0 0)';
-        line.style.display = 'none'; handle.style.display = 'none';
+      const stage = document.getElementById('srmStage');
+      const container = stage ? stage.parentElement : null;
+      const hudL = document.querySelector('.hud-top-left');
+      const hudR = document.querySelector('.map-hud-overlay.hud-top-right:not(.hud-3d)');
+      const hud3d = document.querySelector('.hud-3d');
+      const is3D = view === '3D';
+
+      if (is3D) {
+        // 3D Tactical DEM: dock the WebGL terrain into the map panel.
+        if (sentryEnv) {
+          sentryEnv.dockIn(container);
+        }
+        if (container) container.classList.add('mode-3d-active');
+        if (stage) stage.style.visibility = 'hidden';
+        if (line) line.style.display = 'none';
+        if (handle) handle.style.display = 'none';
+        if (hudL) hudL.hidden = true;
+        if (hudR) hudR.hidden = true;
+        if (hud3d) hud3d.hidden = false;
       } else {
-        fine.style.clipPath = 'inset(0 50% 0 0)';
-        line.style.display = ''; handle.style.display = '';
-        sim.updateSplitPosition(50);
+        // Leaving 3D: restore the background globe and the SRM canvases.
+        if (sentryEnv) sentryEnv.undock();
+        if (container) container.classList.remove('mode-3d-active');
+        if (stage) stage.style.visibility = '';
+        if (hudL) hudL.hidden = false;
+        if (hudR) hudR.hidden = false;
+        if (hud3d) hud3d.hidden = true;
+        if (view === 'COARSE') {
+          fine.style.clipPath = 'inset(0 100% 0 0)';
+          line.style.display = 'none'; handle.style.display = 'none';
+        } else if (view === 'FINE') {
+          fine.style.clipPath = 'inset(0 0 0 0)';
+          line.style.display = 'none'; handle.style.display = 'none';
+        } else {
+          fine.style.clipPath = 'inset(0 50% 0 0)';
+          line.style.display = ''; handle.style.display = '';
+          sim.updateSplitPosition(50);
+        }
       }
+      activeView = view;
       viewToggleBtns.forEach(b => {
         const isActive = b.getAttribute('data-view') === view;
         b.classList.toggle('active', isActive);
@@ -569,14 +600,18 @@
         // LIVE: submit a real backend job and poll it to a terminal state.
         if (api.isLiveConnected) {
           if (!api.isLikelyConfigured()) {
-            toast('Backend is live but unauthenticated — set SentryAPI.setToken(<jwt>) ' +
-                  'or setDevUser(<uuid>) (DEV_AUTH=true) to run real jobs', 'warn', 6000);
+            toast('Backend reachable, but no operator identity is configured. ' +
+                  'Open the browser console and run: SentryAPI.setDevUser("<your user uuid>") ' +
+                  '(local dev, DEV_AUTH=true) or SentryAPI.setToken("<jwt>"). ' +
+                  'Identity and project are remembered across reloads.', 'warn', 9000);
             runBtn.disabled = false;
             runBtn.textContent = 'Run Pipeline';
             return;
           }
           if (!api.projectId) {
-            toast('Live mode: set a project first — SentryAPI.setProjectId("<project uuid>")', 'warn', 6000);
+            toast('No project selected. Run once from the backend docs (/v1/docs): ' +
+                  'POST /v1/projects, then in the browser console run ' +
+                  'SentryAPI.setProjectId("<project uuid>").', 'warn', 9000);
             runBtn.disabled = false;
             runBtn.textContent = 'Run Pipeline';
             return;

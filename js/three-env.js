@@ -26,6 +26,12 @@ class SentryEnvironment {
     this.previousMousePosition = { x: 0, y: 0 };
     this.spherical = { radius: 64, phi: Math.PI / 3.4, theta: 0.1 };
 
+    // Docking state: the canvas can live inside the map panel (3D mode)
+    // instead of behind the whole console (background-globe mode).
+    this.dockedEl = null;
+    this._originalParent = this.canvas ? this.canvas.parentElement : null;
+    this._originalNextSibling = this.canvas ? this.canvas.nextSibling : null;
+
     // Sector waypoints for cinematic tactical flyovers
     this.sectorWaypoints = {
       AOI_01: { // Sector Tawang — LAC Forward Area
@@ -590,12 +596,48 @@ class SentryEnvironment {
   }
 
   _onResize() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    this._resizeToHost();
+  }
+
+  /**
+   * Size the renderer to the docking host (map panel) or the full window.
+   */
+  _resizeToHost() {
+    const el = this.dockedEl;
+    const w = el ? Math.max(1, el.clientWidth) : window.innerWidth;
+    const h = el ? Math.max(1, el.clientHeight) : window.innerHeight;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
     if (this.composer) this.composer.setSize(w, h);
+  }
+
+  /**
+   * Dock the WebGL canvas inside the map panel (3D Tactical DEM mode).
+   * The canvas node is moved in the DOM — the WebGL context survives a
+   * reparenting, and the renderer resizes to the panel's box.
+   */
+  dockIn(container) {
+    if (!this.canvas || !container) return;
+    if (this.canvas.parentElement !== container) {
+      container.appendChild(this.canvas);
+    }
+    this.canvas.classList.add('docked');
+    this.dockedEl = container;
+    this._resizeToHost();
+  }
+
+  /**
+   * Restore the canvas as the full-window background globe.
+   */
+  undock() {
+    if (!this.canvas) return;
+    this.canvas.classList.remove('docked');
+    if (this._originalParent && this.canvas.parentElement !== this._originalParent) {
+      this._originalParent.insertBefore(this.canvas, this._originalNextSibling);
+    }
+    this.dockedEl = null;
+    this._resizeToHost();
   }
 
   /**
