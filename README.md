@@ -60,7 +60,8 @@ SENTRY/
 │   ├── config.py                # Environment & configuration
 │   ├── db.py                    # Database connection pool
 │   ├── auth.py                  # JWT validation & role enforcement
-│   ├── routers/                 # Endpoints: AOIs, jobs, scenes, reports, artifacts
+│   ├── copernicus.py            # Copernicus Data Space connector (search/ingest)
+│   ├── routers/                 # Endpoints: AOIs, copernicus, jobs, scenes, reports, artifacts
 │   └── validation/              # Verification & evidence engine
 ├── worker/                      # Processing pipeline & worker pool
 │   ├── main.py                  # Worker process loop
@@ -102,6 +103,10 @@ python -m worker.main
 
 # Standalone science-pipeline smoke test (no Supabase required)
 python scripts/smoke_e2e.py
+
+# Fetch + MD5-verify the WorldStrat v1.1 source-lock set (SOURCES.md manifest)
+python scripts/fetch_sources.py            # required files (~62 GiB)
+python scripts/fetch_sources.py --verify-only
 ```
 
 ---
@@ -114,6 +119,7 @@ python scripts/smoke_e2e.py
 | `SUPABASE_ANON_KEY` | Anon/publishable key (client-visible per Supabase architecture) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service key — **server-side only** (FastAPI/workers) |
 | `SUPABASE_DB_URL` | Postgres connection string for workers/API (service-level) |
+| `COPERNICUS_USERNAME` / `COPERNICUS_PASSWORD` | Free CDSE account for product **download**; catalog search stays anonymous |
 | `VALIDATION_PROTOCOL_VERSION` | Default `sih26142_v1`; stamped on every validation run |
 | `WORKER_CONCURRENCY` | Max concurrent jobs per worker process |
 | `MAX_TILE_PIXELS` | Cap on tile pixel budget per job |
@@ -130,6 +136,19 @@ python scripts/smoke_e2e.py
 `INVALID_AOI` `SCENE_NOT_FOUND` `DATA_CORRUPT` `MODEL_UNAVAILABLE` `GPU_OOM`
 `VALIDATION_INCOMPLETE` `ARTIFACT_WRITE_FAILED` `AUTH_FORBIDDEN` `JOB_CONFLICT` —
 returned as `{"error": {"code": ..., "message": ...}}`.
+
+### Copernicus ingestion (PRD Table 3, Layer 1)
+
+`POST /v1/copernicus/search` — anonymous catalogue query for Sentinel-2 L2A products
+intersecting a registered AOI, filtered by date range and cloud cover. Any project role.
+
+`POST /v1/copernicus/ingest` — search + (optionally) download + extract the four native
+10 m B02/B03/B04/B08 rasters from the SAFE zip, stage them under the artifact root, and
+register scene + scene_bands rows idempotently (re-ingesting a known product is a no-op).
+Downloads require `COPERNICUS_USERNAME`/`COPERNICUS_PASSWORD` (free CDSE account) and
+fail closed with a stable error until configured; owner/operator role required.
+
+Source-lock artifacts, checksums and the fetch ledger live in [`SOURCES.md`](SOURCES.md).
 
 ---
 

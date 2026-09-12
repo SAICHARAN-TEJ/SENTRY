@@ -12,10 +12,25 @@ from shapely.geometry.polygon import Polygon
 
 from backend import db
 from backend.auth import get_current_user, require_project_role
-from backend.errors import ApiError, INVALID_AOI
+from backend.errors import ApiError, INVALID_AOI, NOT_FOUND
 from backend.schemas import AoiCreate, AoiOut
 
 router = APIRouter(prefix="/v1/aois", tags=["aois"])
+
+
+def _load_aoi_polygon_wkt(project_id: str, aoi_id: str) -> str:
+    """Resolve a registered AOI to EPSG:4326 WKT for external catalog queries."""
+    row = db.query(
+        "select project_id, ST_AsText(geom) as wkt from aois "
+        "where id = %s and project_id = %s",
+        (aoi_id, project_id), one=True,
+    )
+    if row is None:
+        raise ApiError(NOT_FOUND, "AOI not found", 404)
+    wkt = row.get("wkt")
+    if not wkt:
+        raise ApiError(INVALID_AOI, "AOI geometry missing")
+    return wkt
 
 
 @router.post("", status_code=201, response_model=AoiOut)

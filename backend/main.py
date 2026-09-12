@@ -64,11 +64,12 @@ def create_app() -> FastAPI:
         return HealthOut(status="ok", db=db_ok, storage=storage_ok,
                          protocol_version=settings.validation_protocol_version)
 
-    from backend.routers import (aois, artifacts, jobs, models,  # noqa: PLC0415
+    from backend.routers import (aois, artifacts, copernicus, jobs, models,  # noqa: PLC0415
                                  projects, reports, scenes, validations)
 
     app.include_router(projects.router)
     app.include_router(aois.router)
+    app.include_router(copernicus.router)
     app.include_router(scenes.router)
     app.include_router(jobs.router)
     app.include_router(validations.router)

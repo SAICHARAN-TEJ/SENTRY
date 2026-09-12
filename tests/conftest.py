@@ -56,6 +56,8 @@ class FakeDB:
         self.aois: dict[str, dict] = {}
         self.configs: dict[str, dict] = {}
         self.scenes: dict[str, dict] = {}
+        self.scene_bands: list[dict] = []
+        self.dataset_sources: dict[tuple, str] = {}  # (name, version) -> id
         self.references: dict[str, dict] = {}
         self.job_inputs: list[dict] = []
         self._seq = 0
@@ -159,9 +161,46 @@ class FakeDB:
             return rows if not one else (rows[0] if rows else None)
 
         # --- scenes / references ---------------------------------------------
+        if "from scenes where provider_product_id = %s" in s:
+            row = next((sc for sc in self.scenes.values()
+                        if sc["provider_product_id"] == p[0]), None)
+            return row if one else ([row] if row else [])
+        if "from dataset_sources where name" in s and "insert" not in s:
+            key = (p[0], p[1])
+            sid = self.dataset_sources.get(key)
+            row = {"id": sid} if sid else None
+            return row if one else ([row] if row else [])
+        if "insert into dataset_sources" in s:
+            key = (p[0], p[1])
+            if key not in self.dataset_sources:
+                self.dataset_sources[key] = self._next_id()
+            row = {"id": self.dataset_sources[key]}
+            return row if one else [row]
+        if "insert into scenes" in s and "returning id" in s:
+            row = {"id": self._next_id()}
+            self.scenes[row["id"]] = {
+                "id": row["id"], "provider_product_id": p[1],
+                "dataset_source_id": p[0]}
+            return row if one else [row]
+        if "delete from scene_bands where scene_id" in s:
+            self.scene_bands = [b for b in self.scene_bands
+                                if b["scene_id"] != p[0]]
+            return 1
+        if "insert into scene_bands" in s:
+            # params: (scene_id, band_name, native_resolution_m, object_key)
+            self.scene_bands.append({"scene_id": p[0], "band_name": p[1],
+                                     "object_key": p[3]})
+            row = {"id": self._next_id()}
+            return row if one else [row]
         if "from scenes where id = %s" in s:
             row = self.scenes.get(p[0])
             return row if one else ([row] if row else [])
+        if "from aois where id" in s and "st_astext" in s:
+            row = self.aois.get(p[0])
+            if row is not None and row.get("project_id") == p[1]:
+                return {"project_id": row["project_id"],
+                        "wkt": row.get("wkt", "POLYGON((0 0,1 0,1 1,0 1,0 0))")}
+            return None if one else []
         if "from reference_assets where id = %s" in s:
             row = self.references.get(p[0])
             return row if one else ([row] if row else [])
@@ -350,6 +389,15 @@ class FakeDB:
         """Seed a project membership."""
         self.members[(project_id, user_id)] = {
             "project_id": project_id, "user_id": user_id, "role": role}
+
+    def add_aoi(self, project_id: str, name: str = "aoi",
+                wkt: str = "POLYGON((12.30 41.80,12.60 41.80,12.60 42.00,"
+                           "12.30 42.00,12.30 41.80))") -> str:
+        """Seed an AOI row (wkt stored for copernicus tests)."""
+        aid = self._next_id()
+        self.aois[aid] = {"id": aid, "project_id": project_id, "name": name,
+                          "wkt": wkt}
+        return aid
 
     def add_model(self, name: str, version: str = "1.0.0") -> str:
         """Seed a model registry row."""

@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Provenance (PRD §14): immutable build identifiers.
     code_commit: str = ""
     worker_image: str = ""
+    # Copernicus Data Space credentials (free CDSE account; download only).
+    # Catalogue SEARCH stays anonymous — credentials never gate discovery.
+    copernicus_username: str = ""
+    copernicus_password: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
