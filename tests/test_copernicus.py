@@ -8,6 +8,7 @@ the live catalogue on 2026-09-12.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import zipfile
 
@@ -33,8 +34,14 @@ ODATA_ROW = {
 }
 
 
-def _make_safe_zip(bands=("02", "03", "04", "08")) -> bytes:
-    """Synthetic SAFE zip with the 10m band layout the extractor expects."""
+def _make_safe_zip(bands=("02", "03", "04", "08"),
+                   layout="legacy") -> bytes:
+    """Synthetic SAFE zip in one of the two real 10m band naming layouts.
+
+    legacy:  Txxxxx_..._B02.jp2          (older baselines)
+    current: Txxxxx_..._B02_10m.jp2      (observed on N0512, 2026-09-12)
+    """
+    suffix = "_10m" if layout == "current" else ""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("S2A_MSIL2A_20260807T100701_N0512_R022_T33TTG_20260807T183309.SAFE/"
@@ -43,7 +50,7 @@ def _make_safe_zip(bands=("02", "03", "04", "08")) -> bytes:
             zf.writestr(
                 "S2A_MSIL2A_20260807T100701_N0512_R022_T33TTG_20260807T183309.SAFE/"
                 f"GRANULE/L2A_T33TTG_A001234_20260807T100657/IMG_DATA/R10m/"
-                f"T33TTG_20260807T100701_B{band}.jp2",
+                f"T33TTG_20260807T100701_B{band}{suffix}.jp2",
                 f"JP2_BYTES_{band}",
             )
     return buf.getvalue()
@@ -80,6 +87,9 @@ def test_unrecognized_product_name_raises():
 # --------------------------------------------------------------------------- #
 
 def test_search_filter_shape(monkeypatch):
+    """Base filter + $expand=Attributes; the cloud ceiling is applied client-side
+    because the catalogue rejected every server-side Attributes/any shape live
+    (verified 2026-09-12)."""
     captured = {}
 
     class FakeResp:
@@ -88,8 +98,9 @@ def test_search_filter_shape(monkeypatch):
         def json(self):
             return {"value": []}
 
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(url, params=None, timeout=None, headers=None):
         captured["url"], captured["params"] = url, params
+        captured["ua"] = (headers or {}).get("User-Agent")
         return FakeResp()
 
     monkeypatch.setattr(copernicus.httpx, "get", fake_get)
@@ -103,9 +114,48 @@ def test_search_filter_shape(monkeypatch):
     assert "contains(Name,'MSIL2A')" in f
     assert "OData.CSC.Intersects(area=geography'SRID=4326;POLYGON" in f
     assert "ContentDate/Start gt 2026-08-01T00:00:00.000Z" in f
-    assert "Attributes/any(a: a/Name eq 'CloudCover'" in f
-    assert "Value le 20.0)" in f
+    assert "Attributes/any" not in f  # server-side attribute filtering is broken upstream
+    assert captured["params"]["$expand"] == "Attributes"
     assert captured["params"]["$top"] == 5
+    # Honest client identification (catalogue 403s default scripting UAs).
+    assert captured["ua"] == copernicus.USER_AGENT
+
+
+def test_cloud_cover_parsed_from_attributes():
+    row = {**ODATA_ROW, "Attributes": [
+        {"Name": "cloudCover", "Value": 12.5},
+        {"Name": "tileId", "Value": "33TTG"},
+    ]}
+    assert copernicus.CatalogProduct.from_odata(row).cloud_pct == 12.5
+    # No attributes reported -> missing evidence, not a fabricated value.
+    assert copernicus.CatalogProduct.from_odata(ODATA_ROW).cloud_pct is None
+
+
+def test_search_client_side_cloud_filter(monkeypatch):
+    """max_cloud drops products above the ceiling but keeps products whose cloud
+    cover is unreported (missing evidence is surfaced, never hidden)."""
+    rows = [
+        {**ODATA_ROW, "Id": "low",
+         "Attributes": [{"Name": "cloudCover", "Value": 5.0}]},
+        {**ODATA_ROW, "Id": "high",
+         "Attributes": [{"Name": "cloudCover", "Value": 55.0}]},
+        {**ODATA_ROW, "Id": "unreported"},
+    ]
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"value": rows}
+
+    monkeypatch.setattr(
+        copernicus.httpx, "get",
+        lambda url, params=None, timeout=None, headers=None: FakeResp())
+    found = copernicus.search_products(
+        "POLYGON((12.3 41.8,12.6 41.8,12.6 42.0,12.3 42.0,12.3 41.8))",
+        "2026-08-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z",
+        max_cloud=20.0, top=10)
+    assert [p.product_id for p in found] == ["low", "unreported"]
 
 
 def test_search_rejects_non_polygon():
@@ -125,6 +175,32 @@ def test_extract_bands_roundtrip(tmp_path):
     bands = copernicus.extract_bands(str(zip_path))
     assert set(bands) == {"B02", "B03", "B04", "B08"}
     assert bands["B02"] == b"JP2_BYTES_02"
+
+
+def test_extract_bands_current_baseline_layout(tmp_path):
+    """N0512-era products name bands ``_B02_10m.jp2`` (verified against a real
+    downloaded product 2026-09-12); the extractor must accept that layout too."""
+    zip_path = tmp_path / "product.zip"
+    zip_path.write_bytes(_make_safe_zip(layout="current"))
+    bands = copernicus.extract_bands(str(zip_path))
+    assert set(bands) == {"B02", "B03", "B04", "B08"}
+    assert bands["B08"] == b"JP2_BYTES_08"
+
+
+def test_extract_bands_ignores_20m_rasters(tmp_path):
+    """R20m copies of the same bands must never satisfy the 10m gate."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        base = "S2A_MSIL2A_20260807T100701_N0512_R022_T33TTG_20260807T183309.SAFE/"
+        for band in ("02", "03", "04", "08"):
+            zf.writestr(base + f"GRANULE/L2A_T33TTG_A001234_20260807T100657/"
+                                f"IMG_DATA/R20m/T33TTG_20260807T100701_B{band}_20m.jp2",
+                        b"WRONG_RESOLUTION")
+    zip_path = tmp_path / "product.zip"
+    zip_path.write_bytes(buf.getvalue())
+    with pytest.raises(ApiError) as ei:
+        copernicus.extract_bands(str(zip_path))
+    assert ei.value.code == "DATA_CORRUPT"
 
 
 def test_extract_bands_missing_band_fails(tmp_path):
@@ -207,6 +283,70 @@ def test_download_resumes_existing_file(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# Checksum verification (catalogue MD5 gate before staging)
+# --------------------------------------------------------------------------- #
+
+def test_fetch_product_checksum_parses_md5(monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"Checksum": [
+                {"Algorithm": "MD5", "Value": "ABCDEF0123456789ABCDEF0123456789"},
+                {"Algorithm": "BLAKE3", "Value": "ff" * 32},
+            ]}
+
+    monkeypatch.setattr(
+        copernicus.httpx, "get",
+        lambda url, timeout=None, headers=None: FakeResp())
+    assert copernicus.fetch_product_checksum("pid") == \
+        "abcdef0123456789abcdef0123456789"
+
+
+def test_fetch_product_checksum_missing_fails_closed(monkeypatch):
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"Checksum": []}
+
+    monkeypatch.setattr(
+        copernicus.httpx, "get",
+        lambda url, timeout=None, headers=None: FakeResp())
+    with pytest.raises(ApiError) as ei:
+        copernicus.fetch_product_checksum("pid")
+    assert ei.value.code == "DATA_CORRUPT"
+
+
+def test_download_verified_mismatch_deletes_file(monkeypatch, tmp_path):
+    bogus = tmp_path / "scene-assets" / "copernicus" / "pid.zip"
+    bogus.parent.mkdir(parents=True)
+    bogus.write_bytes(b"corrupt-bytes")
+    monkeypatch.setattr(copernicus, "fetch_product_checksum", lambda pid: "d" * 32)
+    with pytest.raises(ApiError) as ei:
+        copernicus.download_product_verified("pid", dest_dir=str(tmp_path))
+    assert ei.value.code == "DATA_CORRUPT"
+    assert not bogus.exists()  # corrupted transfer never reaches staging
+
+
+def test_download_verified_accepts_matching_file(monkeypatch, tmp_path):
+    good = tmp_path / "scene-assets" / "copernicus" / "pid.zip"
+    good.parent.mkdir(parents=True)
+    good.write_bytes(b"real-bytes")
+    expected = hashlib.md5(b"real-bytes").hexdigest()
+
+    def no_download(pid, dest=None):
+        raise AssertionError("existing verified file must not be re-downloaded")
+
+    monkeypatch.setattr(copernicus, "download_product", no_download)
+    monkeypatch.setattr(copernicus, "fetch_product_checksum", lambda pid: expected)
+    path, md5 = copernicus.download_product_verified("pid", dest_dir=str(tmp_path))
+    assert path == str(good)
+    assert md5 == expected
+    assert good.exists()
+
+
+# --------------------------------------------------------------------------- #
 # API surface
 # --------------------------------------------------------------------------- #
 
@@ -227,7 +367,7 @@ def test_copernicus_search_endpoint(client, fake_db, monkeypatch):
 
     monkeypatch.setattr(
         copernicus.httpx, "get",
-        lambda url, params=None, timeout=None: FakeResp())
+        lambda url, params=None, timeout=None, headers=None: FakeResp())
 
     resp = client.post("/v1/copernicus/search", headers=DEV, json={
         "project_id": pid, "aoi_id": aoi_id,
@@ -278,7 +418,7 @@ def test_copernicus_ingest_idempotent_flow(client, fake_db, monkeypatch, tmp_pat
 
     monkeypatch.setattr(
         copernicus.httpx, "get",
-        lambda url, params=None, timeout=None: FakeResp())
+        lambda url, params=None, timeout=None, headers=None: FakeResp())
     monkeypatch.setattr("backend.copernicus.get_settings", lambda: type(
         "S", (), {"copernicus_username": "", "copernicus_password": "",
                   "artifact_root": str(tmp_path)})())

@@ -14,6 +14,8 @@ cloud cover, CRS and footprint — everything downstream provenance expects.
 
 from __future__ import annotations
 
+import hashlib
+import hashlib
 import io
 import re
 import zipfile
@@ -31,6 +33,13 @@ ODATA_URL = "https://catalogue.dataspace.copernicus.eu/odata/v1"
 DOWNLOAD_URL = "https://download.dataspace.copernicus.eu/odata/v1/Products({product_id})/$value"
 AUTH_URL = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
 
+# The catalogue's request filter rejects default scripting-library User-Agents
+# (HTTP 403 "violation" observed with python-httpx on 2026-09-12); identify the
+# client honestly on every call instead.
+USER_AGENT = ("Sentry-SIH26142/0.1 "
+              "(Copernicus S2 super-resolution validation research; "
+              "https://github.com/SAICHARAN-TEJ/SENTRY)")
+
 BANDS = ingest.BANDS  # ["B02", "B03", "B04", "B08"]
 
 # S2 MSIL2A product naming:
@@ -41,10 +50,11 @@ PRODUCT_NAME_RE = re.compile(
     r"\d{8}T\d{6}\.SAFE$"
 )
 
-# Band raster paths inside the SAFE zip (10 m native resolution):
-# GRANULE/L1C_Txxxxx_.../IMG_DATA/Rxxm/Txxxxx_YYYYMMDDTHHMMSS_Bxx.jp2
+# Band raster paths inside the SAFE zip (10 m native resolution). Two verified
+# layouts exist: legacy ``Txxxxx_..._B02.jp2`` and current-baseline
+# ``Txxxxx_..._B02_10m.jp2`` (observed on N0512, 2026-09-12) — accept both.
 BAND_JP2_RE = re.compile(
-    r"GRANULE/[^/]+/IMG_DATA/R10m/[^/]*_B(?P<band>02|03|04|08)\.jp2$"
+    r"GRANULE/[^/]+/IMG_DATA/R10m/[^/]*_B(?P<band>02|03|04|08)(?:_10m)?\.jp2$"
 )
 
 
@@ -78,6 +88,7 @@ class CatalogProduct:
             satellite=match["sat"],
             online=bool(row.get("Online", False)),
             footprint_wkt=footprint,
+            cloud_pct=_cloud_cover_pct(row),
         )
 
     @property
@@ -99,6 +110,18 @@ def _footprint_wkt(row: dict) -> str | None:
     return f"POLYGON(({pts}))"
 
 
+def _cloud_cover_pct(row: dict) -> float | None:
+    """cloudCover from the expanded Attributes list (lowercase name, verified
+    live 2026-09-12); None when the catalogue does not report it."""
+    for attr in row.get("Attributes") or []:
+        if attr.get("Name") == "cloudCover":
+            try:
+                return float(attr.get("Value"))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Search (anonymous)
 # --------------------------------------------------------------------------- #
@@ -109,31 +132,32 @@ def search_products(aoi_wkt: str, start: str, end: str,
 
     Args are ISO datetimes (start/end) and a 4326 polygon WKT. Returns parsed
     CatalogProduct records ordered by sensing time (newest first upstream).
+
+    Cloud ceiling is applied client-side over ``$expand=Attributes``: the
+    catalogue rejected every server-side ``Attributes/any(...)`` shape during
+    live verification (2026-09-12), while expanded ``cloudCover`` values work.
+    Products whose cloud cover the catalogue does not report are kept — missing
+    evidence is surfaced to the caller, never silently hidden.
     """
     if "POLYGON" not in aoi_wkt.upper():
         raise ApiError(INVALID_AOI, "aoi_wkt must be a POLYGON WKT in EPSG:4326")
     top = max(1, min(int(top), 100))
 
-    filters = [
-        "Collection/Name eq 'SENTINEL-2'",
-        "contains(Name,'MSIL2A')",
-        f"OData.CSC.Intersects(area=geography'SRID=4326;{aoi_wkt}')",
-        f"ContentDate/Start gt {start}",
-        f"ContentDate/Start lt {end}",
-    ]
-    if max_cloud is not None:
-        # CloudCover is a product Attributes entry; filter server-side.
-        filters.append("Attributes/any(a: a/Name eq 'CloudCover' "
-                       "and a/OData.CSC.Double/Value le "
-                       f"{float(max_cloud)})")
-
     query = {
-        "$filter": " and ".join(filters),
+        "$filter": " and ".join([
+            "Collection/Name eq 'SENTINEL-2'",
+            "contains(Name,'MSIL2A')",
+            f"OData.CSC.Intersects(area=geography'SRID=4326;{aoi_wkt}')",
+            f"ContentDate/Start gt {start}",
+            f"ContentDate/Start lt {end}",
+        ]),
         "$top": top,
         "$orderby": "ContentDate/Start desc",
+        "$expand": "Attributes",
     }
     try:
-        resp = httpx.get(f"{ODATA_URL}/Products", params=query, timeout=30.0)
+        resp = httpx.get(f"{ODATA_URL}/Products", params=query, timeout=30.0,
+                         headers={"User-Agent": USER_AGENT})
     except httpx.HTTPError as exc:
         raise ApiError(DATA_CORRUPT, f"Copernicus catalogue unreachable: {exc}") from exc
     if resp.status_code != 200:
@@ -143,9 +167,13 @@ def search_products(aoi_wkt: str, start: str, end: str,
     products: list[CatalogProduct] = []
     for row in resp.json().get("value", []):
         try:
-            products.append(CatalogProduct.from_odata(row))
+            product = CatalogProduct.from_odata(row)
         except ApiError:
             continue  # skip unrecognized names rather than failing the whole search
+        if max_cloud is not None and product.cloud_pct is not None \
+                and product.cloud_pct > float(max_cloud):
+            continue
+        products.append(product)
     return products
 
 
@@ -163,6 +191,7 @@ def _access_token(username: str, password: str) -> str:
             "password": password,
             "client_id": "cdse-public",
         },
+        headers={"User-Agent": USER_AGENT},
         timeout=30.0,
     )
     if resp.status_code != 200:
@@ -196,24 +225,77 @@ def download_product(product_id: str, dest_dir: str | None = None) -> str:
         )
 
     token = _access_token(username, password)
+    _stream_download(product_id, path, token)
+    return str(path)
+
+
+def _stream_download(product_id: str, path: Path, token: str) -> str:
+    """Stream the product zip to ``path``; returns the computed MD5 hexdigest."""
     try:
         with httpx.stream(
             "GET", DOWNLOAD_URL.format(product_id=product_id),
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT},
             timeout=httpx.Timeout(3600.0, connect=30.0),
             follow_redirects=True,
         ) as resp:
             if resp.status_code != 200:
                 raise ApiError(DATA_CORRUPT,
                                f"Copernicus download failed (HTTP {resp.status_code})")
+            digest = hashlib.md5()
             with open(path, "wb") as fh:
                 for chunk in resp.iter_bytes(chunk_size=1 << 20):
                     fh.write(chunk)
+                    digest.update(chunk)
     except httpx.HTTPError as exc:
         # Discard partial file so a retry starts clean.
         path.unlink(missing_ok=True)
         raise ApiError(DATA_CORRUPT, f"Copernicus download failed: {exc}") from exc
-    return str(path)
+    return digest.hexdigest()
+
+
+def fetch_product_checksum(product_id: str) -> str:
+    """Official MD5 hexdigest for a product, from the catalogue (fail-closed:
+    a product without a reported checksum is refused rather than trusted)."""
+    try:
+        resp = httpx.get(f"{ODATA_URL}/Products({product_id})",
+                         headers={"User-Agent": USER_AGENT}, timeout=30.0)
+    except httpx.HTTPError as exc:
+        raise ApiError(DATA_CORRUPT,
+                       f"Copernicus catalogue unreachable: {exc}") from exc
+    if resp.status_code != 200:
+        raise ApiError(DATA_CORRUPT,
+                       f"Copernicus catalogue returned HTTP {resp.status_code}")
+    for entry in resp.json().get("Checksum") or []:
+        if str(entry.get("Algorithm", "")).upper().endswith("MD5"):
+            return str(entry.get("Value", "")).lower()
+    raise ApiError(DATA_CORRUPT,
+                   f"catalogue reported no MD5 checksum for {product_id}; "
+                   "refusing to stage an unverified product")
+
+
+def download_product_verified(product_id: str,
+                              dest_dir: str | None = None) -> tuple[str, str]:
+    """Download one product and verify it against the catalogue's official MD5.
+
+    Returns ``(path, md5_hex)``. On mismatch the file is deleted and DATA_CORRUPT
+    raised — a corrupted transfer can never reach band staging (PRD Phase 0 rule:
+    all source artifacts checksummed before use).
+    """
+    root = dest_dir or str(get_settings().artifact_root)
+    path = Path(root) / "scene-assets" / "copernicus" / f"{product_id}.zip"
+    if not (path.exists() and path.stat().st_size > 0):
+        download_product(product_id, dest_dir)
+    expected = fetch_product_checksum(product_id)
+    digest = hashlib.md5()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        path.unlink(missing_ok=True)
+        raise ApiError(DATA_CORRUPT,
+                       f"product {product_id} failed checksum verification "
+                       f"({digest.hexdigest()} != {expected}); file deleted")
+    return str(path), expected
 
 
 # --------------------------------------------------------------------------- #
@@ -331,7 +413,7 @@ def search_and_ingest(aoi_wkt: str, start: str, end: str,
                             "status": "catalog_only"})
             continue
         try:
-            zip_path = download_product(product.product_id)
+            zip_path, _md5 = download_product_verified(product.product_id)
             staged = ingest_product(product, zip_path)
             staged["status"] = "ingested"
             results.append(staged)

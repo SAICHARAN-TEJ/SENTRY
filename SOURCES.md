@@ -46,10 +46,17 @@ claim unrestricted commercial deployment (CC BY-NC 4.0). Retain LICENSE.txt alon
 - **Pinned release: v1.1.1 (published 2026-05-08)** — the version to record in provenance
   (`model_versions.framework` / model card) and in `run_metadata.json`.
 - Tarball: https://api.github.com/repos/ESAOpenSR/opensr-model/tarball/v1.1.1
-- Checkpoint weights: fetched by the package's own downloader (Hugging Face-hosted).
-  **Status: NOT YET DOWNLOADED (human/GPU step).** After download, record the checkpoint
-  SHA-256 in the `model_versions.checksum` column — `backend.schemas.ModelOut` already
-  exposes it and validation reports stamp it into every `summary_json.model.sha256`.
+- Repository **cloned 2026-09-12** at the pinned tag into `third_party/opensr-model`
+  (gitignored; HEAD `10f4c01` "push v1.1.1").
+- Checkpoint weights: **DOWNLOADED 2026-09-12.** `opensr-ldsrs2_v1_0_0.ckpt` — the
+  `ckpt_version` referenced by the pinned v1.1.1 config — fetched from
+  `huggingface.co/simon-donike/RS-SR-LTDF` into `data/opensr/` via
+  `scripts/fetch_opensr_weights.py`.
+  - Size: 1,130,715,795 bytes
+  - SHA-256: `e2621e3912eb7c14867c3d20c9029607ba941be8e166dc09621860fcac27dc3a`
+  - Cross-verified against Hugging Face's official LFS oid — identical.
+  - Record this hash in `model_versions.checksum` — `backend.schemas.ModelOut` already
+    exposes it and validation reports stamp it into every `summary_json.model.sha256`.
 - Companion repo (PRD Table 3 reference for tiling/stitching):
   https://github.com/ESAOpenSR/opensr-utils — record its version pin after cloning.
 
@@ -60,9 +67,20 @@ claim unrestricted commercial deployment (CC BY-NC 4.0). Retain LICENSE.txt alon
   Verified filter shape: `Collection/Name eq 'SENTINEL-2' and contains(Name,'MSIL2A')
   and OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((...))')` + `ContentDate/Start`.
   Products return MD5 + BLAKE3 checksums, footprints, Online/offline flags.
-- Product download (S3) requires a **free registered account** — token human step, not
-  yet provisioned. `backend/copernicus.py` implements search/ingest unauthenticated and
-  download optionally authenticated via `COPERNICUS_USERNAME` / `COPERNICUS_PASSWORD`.
+- Product download requires a **free registered account**. CDSE account provisioned
+  2026-09-12; credentials live in the gitignored `.env` (`COPERNICUS_USERNAME` /
+  `COPERNICUS_PASSWORD`) and are consumed by `backend/copernicus.py` via the
+  authenticated `cdse-public` OpenID token grant (never committed, never logged).
+- **Verified live 2026-09-12**: password grant returns a 30-minute bearer token
+  (`AUDIENCE_PUBLIC`, issuer `identity.dataspace.copernicus.eu/auth/realms/CDSE`), and an
+  authenticated ranged GET on `download.dataspace.copernicus.eu` returned real product
+  bytes — full search→download path confirmed with the provisioned account.
+- Catalogue quirks discovered live (both handled in `backend/copernicus.py`):
+  1. Requests carrying default scripting-library User-Agents (e.g. python-httpx) are
+     rejected with HTTP 403 "violation" — the connector sends an honest product UA.
+  2. Every server-side `Attributes/any(...)` filter shape was rejected (HTTP 400),
+     while `$expand=Attributes` works and reports `cloudCover` (lowercase, Double) —
+     the cloud ceiling is therefore applied client-side after search.
 - Connector in repo: `backend/copernicus.py` + `/v1/copernicus/*` endpoints.
 
 ## 5. Reference papers (jury package; optional PDFs)
@@ -82,7 +100,7 @@ claim unrestricted commercial deployment (CC BY-NC 4.0). Retain LICENSE.txt alon
 | OpenSR opensr-model version pin (v1.1.1) | ✅ verified 2026-09-12 | recorded here |
 | Copernicus OData endpoint + filter shape | ✅ verified live 2026-09-12 | connector implemented |
 | SIH PS 26142 archive (PDF + SHA-256) | ⬜ pending | human |
-| WorldStrat archive downloads (~62 GiB initial) | ⬜ pending | human (`fetch_sources.py`) |
-| OpenSR checkpoint weights + SHA-256 | ⬜ pending | human/GPU |
-| Copernicus account + token | ⬜ pending | human |
-| One real S2 L2A product staged end-to-end | ⬜ pending | after connector + account |
+| WorldStrat archive downloads (~62 GiB initial) | 🔄 in progress 2026-09-12 — small files verified; `hr_dataset.zip` downloading (resumable: re-run `fetch_sources.py`) | `data/worldstrat/` |
+| OpenSR checkpoint weights + SHA-256 | ✅ downloaded 2026-09-12 — `e2621e39…7dc3a` (HF-LFS cross-verified) | `data/opensr/` |
+| Copernicus account + token | ✅ provisioned 2026-09-12; token grant verified live | `.env` (gitignored) |
+| One real S2 L2A product staged end-to-end | 🔄 `S2A_MSIL2A_20260827T100701_N0512_R022_T33TTG` (655 MiB) downloading via `scripts/fetch_sentinel2_product.py` with catalogue-MD5 verification; staging then needs a live DB | `data/copernicus/` |

@@ -16,6 +16,9 @@ data/
 fixtures/output/
 _tmp_*.py
 
+# Vendored external repos (cloned at pinned versions; see SOURCES.md)
+third_party/
+
 # Environment variables & secrets
 .env
 .env.local

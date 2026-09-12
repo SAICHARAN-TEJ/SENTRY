@@ -52,14 +52,29 @@ def md5_file(path: Path) -> str:
 
 
 def download(key: str, dest: Path) -> None:
-    """Stream one Zenodo file to dest (any partial file is discarded on error)."""
+    """Stream one Zenodo file to dest, resuming from an existing ``.part`` file.
+
+    Zenodo's content endpoint honors HTTP Range requests, so an interrupted
+    multi-GiB download continues where it stopped instead of restarting. Any
+    server that ignores Range answers 200; the partial file is then discarded
+    and the download restarts cleanly rather than corrupting the target.
+    """
     import requests
 
     tmp = dest.with_suffix(dest.suffix + ".part")
     url = RECORD_URL.format(key=key)
-    with requests.get(url, stream=True, timeout=60, allow_redirects=True) as resp:
-        resp.raise_for_status()
-        with open(tmp, "wb") as fh:
+    headers: dict[str, str] = {}
+    mode = "wb"
+    if tmp.exists() and tmp.stat().st_size > 0:
+        headers["Range"] = f"bytes={tmp.stat().st_size}-"
+        mode = "ab"
+    with requests.get(url, stream=True, timeout=60,
+                      allow_redirects=True, headers=headers) as resp:
+        if resp.status_code == 200 and mode == "ab":
+            mode = "wb"  # server ignored Range: restart rather than append
+        elif resp.status_code != 206:
+            resp.raise_for_status()
+        with open(tmp, mode) as fh:
             for chunk in resp.iter_content(chunk_size=CHUNK):
                 if chunk:
                     fh.write(chunk)
