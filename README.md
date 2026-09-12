@@ -1,14 +1,24 @@
-# SIH26142 "Sentry" — Supabase Control Plane Backend
+# SIH26142 "Sentry" — Tactical Land-Cover Intelligence & Validation-Centered Geospatial Platform
 
-Validation-centered geospatial platform: reconstructs a sub-4 m Sentinel-2 product
-(10 m → 2.5 m, B02/B03/B04/B08) and — its primary job — collects evidence and decides
-whether that reconstruction is spatially, spectrally, geometrically and observationally
-trustworthy. **Inferred detail is never represented as directly observed satellite truth.**
+Validation-centered geospatial platform & tactical intelligence console: reconstructs a sub-4 m Sentinel-2 product (10 m → 2.5 m, B02/B03/B04/B08) and — its primary job — collects evidence and decides whether that reconstruction is spatially, spectrally, geometrically and observationally trustworthy. **Inferred detail is never represented as directly observed satellite truth.**
+
+---
+
+## System Overview
+
+Sentry combines an immersive tactical front-end console with a robust Supabase control plane, high-throughput worker pool, and rigorous validation engine.
+
+- **Frontend Console**: Tactical Land-Cover Intelligence 3D/2D operator console built with Three.js, interactive map layers, metrics charts, and live job tracking.
+- **Control Plane Backend**: FastAPI orchestrator with Supabase Auth, Realtime event streaming, and PostGIS-backed geospatial queries.
+- **Processing Workers**: CPU preprocessing (GDAL/Rasterio) and GPU worker pool for super-resolution reconstruction and uncertainty estimation.
+- **Validation Engine**: Independent verification suite checking spectral fidelity, edge preservation, hallucination resistance, and radiometric consistency before marking reconstructions as trustworthy.
+
+---
 
 ## Architecture
 
 ```
-Browser / Client
+Browser / Client (Tactical Console: Three.js / Leaflet / Metrics)
    │
    ├── Supabase Auth (JWT)
    ├── Supabase Realtime (job events)
@@ -35,26 +45,68 @@ Browser / Client
         Supabase Postgres / Storage
 ```
 
+---
+
+## Project Structure
+
+```
+SENTRY/
+├── index.html                   # Tactical Land-Cover Intelligence Console
+├── css/                         # Console styling & SpaceX dark theme
+├── js/                          # Frontend scripts (Three.js, API, charts, simulation)
+├── assets/                      # Textures, terrain maps, fonts, and screenshots
+├── backend/                     # FastAPI control plane & validation engine
+│   ├── main.py                  # API entry point & lifecycle
+│   ├── config.py                # Environment & configuration
+│   ├── db.py                    # Database connection pool
+│   ├── auth.py                  # JWT validation & role enforcement
+│   ├── routers/                 # Endpoints: AOIs, jobs, scenes, reports, artifacts
+│   └── validation/              # Verification & evidence engine
+├── worker/                      # Processing pipeline & worker pool
+│   ├── main.py                  # Worker process loop
+│   ├── preprocess.py            # GDAL/Rasterio CPU preprocessing
+│   ├── baselines.py             # Bicubic & interpolation baselines
+│   └── tiling.py                # Tiling & stride handling
+├── supabase/                    # Supabase schema & migrations
+│   └── migrations/              # SQL migrations (PostGIS, RLS, storage, seeds)
+├── tests/                       # Pytest test suite (API, validation, RLS, tiling)
+├── scripts/                     # Smoke tests & compilation utilities
+├── docker-compose.yml           # Multi-container local deployment
+└── Dockerfile                   # Worker & API container build
+```
+
+---
+
 ## Quickstart
 
+### Frontend Console
+Open `index.html` in your web browser or serve it with any local static server:
+```bash
+python -m http.server 8000
+```
+Then navigate to `http://localhost:8000`.
+
+### Backend & Worker Setup
 ```bash
 python -m venv .venv && .venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 
-# local Supabase via CLI (or point .env at a managed project)
+# Local Supabase via CLI (or point .env at a managed project)
 supabase start && supabase db reset
 
-# API
+# API Server
 uvicorn backend.main:app --reload
 
-# worker (CPU preprocess / reconstruct / validate loop)
+# Worker Loop
 python -m worker.main
 
-# standalone science-pipeline smoke test (no Supabase required)
+# Standalone science-pipeline smoke test (no Supabase required)
 python scripts/smoke_e2e.py
 ```
 
-## Environment variables
+---
+
+## Environment Variables
 
 | Variable | Purpose |
 |---|---|
@@ -71,13 +123,17 @@ python scripts/smoke_e2e.py
 | `CODE_COMMIT` | Immutable source revision stamped in provenance |
 | `WORKER_IMAGE` | Immutable worker image digest stamped in provenance |
 
-## Error model
+---
+
+## Error Model
 
 `INVALID_AOI` `SCENE_NOT_FOUND` `DATA_CORRUPT` `MODEL_UNAVAILABLE` `GPU_OOM`
 `VALIDATION_INCOMPLETE` `ARTIFACT_WRITE_FAILED` `AUTH_FORBIDDEN` `JOB_CONFLICT` —
 returned as `{"error": {"code": ..., "message": ...}}`.
 
-## Job lifecycle
+---
+
+## Job Lifecycle
 
 `QUEUED → CLAIMED → PREPROCESSING → RECONSTRUCTING → UNCERTAINTY → VALIDATING → REPORTING → COMPLETED`
 (terminal `FAILED` / `CANCELLED`). Every transition writes `jobs` + `job_steps` rows;
