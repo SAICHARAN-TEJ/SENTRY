@@ -13,8 +13,8 @@
   <link rel="stylesheet" href="https://fonts.cdnfonts.com/css/sf-pro-display">
 
   <!-- Stylesheets -->
-  <link rel="stylesheet" href="css/spacex-theme.css?v=12">
-  <link rel="stylesheet" href="css/console.css?v=12">
+  <link rel="stylesheet" href="css/spacex-theme.css?v=13">
+  <link rel="stylesheet" href="css/console.css?v=13">
 
   <!-- Three.js CDN (r170) — terrain layer only; console degrades fully without it -->
   <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -83,6 +83,7 @@
       </nav>
 
       <div class="header-right">
+        <button id="connectBtn" class="button-ghost button-ghost-sm" aria-haspopup="dialog">Connect…</button>
         <button id="runPipelineBtn" class="button-ghost button-ghost-sm">Run Pipeline</button>
       </div>
     </header>
@@ -305,7 +306,7 @@
               <button class="alert-filter-btn" data-filter="DISMISSED" aria-pressed="false">Dismissed</button>
             </div>
             <div class="alerts-toolbar-right">
-              <span class="chip alert" id="reviewCountChip">3 Pending Review</span>
+              <span class="chip neutral" id="reviewCountChip">0 Pending Review</span>
               <button id="exportAllKmlBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Export KML</button>
             </div>
           </div>
@@ -552,6 +553,40 @@
 
   </div>
 
+  <!-- ═════════════════════════════════════════════════════════════
+       CONNECT — operator identity & project scope (stored in localStorage)
+       ═════════════════════════════════════════════════════════════ -->
+  <div id="connectModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="connectTitle">
+    <div class="modal-container" style="max-width: 460px;">
+      <div class="modal-header">
+        <div>
+          <span class="micro-cap">Operator Session</span>
+          <h3 id="connectTitle" class="display-md" style="font-size: 15px; margin-top: 3px;">Connect to Backend</h3>
+        </div>
+        <button id="connectCloseBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="hairline-card" style="margin-bottom: 14px;">
+          <span class="micro-cap" style="display: block; margin-bottom: 6px;">Dev identity (local development)</span>
+          <label class="micro-cap" for="connectUserInput" style="display:block; margin: 8px 0 4px;">User UUID (X-Dev-User; backend needs DEV_AUTH=true)</label>
+          <input id="connectUserInput" class="console-select" type="text" style="width: 100%;"
+                 placeholder="00000000-0000-4000-8000-000000000001" autocomplete="off" spellcheck="false">
+          <label class="micro-cap" for="connectProjectInput" style="display:block; margin: 10px 0 4px;">Project UUID (job submission scope)</label>
+          <input id="connectProjectInput" class="console-select" type="text" style="width: 100%;"
+                 placeholder="00000000-0000-4000-8000-000000000002" autocomplete="off" spellcheck="false">
+          <p class="micro-cap" style="margin-top: 10px; opacity: 0.75;">
+            Create both via POST /v1/projects (docs at /docs), then paste the IDs here.
+            Stored in this browser only. Leave empty to run unauthenticated.
+          </p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="connectClearBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Clear</button>
+        <button id="connectSaveBtn" class="button-ghost button-ghost-sm">Save &amp; Reconnect</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast notification region -->
   <div id="toastRegion" class="toast-region" role="region" aria-live="polite" aria-label="Notifications"></div>
 
@@ -559,11 +594,11 @@
        SCRIPTS
        ═══════════════════════════════════════════════════════════════ -->
 
-  <script src="js/api.js?v=12"></script>
-  <script src="js/sentinel-sim.js?v=12"></script>
-  <script src="js/metrics-charts.js?v=12"></script>
-  <script src="js/three-env.js?v=12"></script>
-  <script src="js/app.js?v=12"></script>
+  <script src="js/api.js?v=13"></script>
+  <script src="js/sentinel-sim.js?v=13"></script>
+  <script src="js/metrics-charts.js?v=13"></script>
+  <script src="js/three-env.js?v=13"></script>
+  <script src="js/app.js?v=13"></script>
 
   <!-- Three.js as ES module — imports, creates environment, signals ready -->
   <script type="module">

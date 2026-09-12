@@ -410,6 +410,15 @@
       if (!tbody) return;
       tbody.innerHTML = '';
 
+      // The pending-review chip always reflects current data — even when the
+      // table is empty — so the header count can never contradict the rows.
+      const pending = allAlerts.filter(a => a.status === 'HUMAN_REVIEW').length;
+      const reviewChip = document.getElementById('reviewCountChip');
+      if (reviewChip) {
+        reviewChip.textContent = `${pending} Pending Review`;
+        reviewChip.className = pending > 0 ? 'chip alert' : 'chip neutral';
+      }
+
       const filtered = activeFilter === 'ALL'
         ? allAlerts
         : allAlerts.filter(a => a.status === activeFilter);
@@ -446,11 +455,6 @@
       tbody.querySelectorAll('.evidence-btn').forEach(btn => {
         btn.addEventListener('click', () => openDossier(btn.dataset.alertId));
       });
-
-      // Honest pending count, reflects current data
-      const pending = allAlerts.filter(a => a.status === 'HUMAN_REVIEW').length;
-      const reviewChip = document.getElementById('reviewCountChip');
-      if (reviewChip) reviewChip.textContent = `${pending} Pending Review`;
     }
 
     async function loadAlerts() {
@@ -513,6 +517,61 @@
     modal?.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
     modal?.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { closeModal(); e.stopPropagation(); }
+    });
+
+    // ═════════════════════════════════════════════════════════════
+    // 11b. CONNECT DIALOG — operator identity & project scope in-app
+    // ═════════════════════════════════════════════════════════════
+    const connectModal = document.getElementById('connectModal');
+    let connectLastFocused = null;
+
+    function openConnect() {
+      if (!connectModal) return;
+      connectLastFocused = document.activeElement;
+      const userInput = document.getElementById('connectUserInput');
+      const projectInput = document.getElementById('connectProjectInput');
+      if (userInput) userInput.value = api.devUser || '';
+      if (projectInput) projectInput.value = api.projectId || '';
+      connectModal.classList.add('open');
+      userInput?.focus();
+    }
+
+    function closeConnect() {
+      if (!connectModal) return;
+      connectModal.classList.remove('open');
+      if (connectLastFocused && connectModal.contains(document.activeElement)) {
+        connectLastFocused.focus();
+      }
+    }
+
+    function saveConnect() {
+      const userInput = document.getElementById('connectUserInput');
+      const projectInput = document.getElementById('connectProjectInput');
+      const user = (userInput?.value || '').trim();
+      const project = (projectInput?.value || '').trim();
+      api.setDevUser(user || null);
+      api.setProjectId(project || null);
+      closeConnect();
+      api.connect(); // re-probe; the badge and guards read the new state
+      toast(user
+        ? `Operator identity saved${project ? ' — project scope set' : ''}.`
+        : 'Identity cleared — running unauthenticated.', 'ok', 4000);
+    }
+
+    document.getElementById('connectBtn')?.addEventListener('click', openConnect);
+    document.getElementById('connectCloseBtn')?.addEventListener('click', closeConnect);
+    document.getElementById('connectSaveBtn')?.addEventListener('click', saveConnect);
+    document.getElementById('connectClearBtn')?.addEventListener('click', () => {
+      const userInput = document.getElementById('connectUserInput');
+      const projectInput = document.getElementById('connectProjectInput');
+      if (userInput) userInput.value = '';
+      if (projectInput) projectInput.value = '';
+      userInput?.focus();
+    });
+    connectModal?.addEventListener('click', (e) => { if (e.target === connectModal) closeConnect(); });
+    connectModal?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeConnect(); e.stopPropagation(); }
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT') { saveConnect(); e.preventDefault(); }
     });
 
     // ═══════════════════════════════════════════════════════════════
@@ -601,19 +660,17 @@
         if (api.isLiveConnected) {
           if (!api.isLikelyConfigured()) {
             toast('Backend reachable, but no operator identity is configured. ' +
-                  'Open the browser console and run: SentryAPI.setDevUser("<your user uuid>") ' +
-                  '(local dev, DEV_AUTH=true) or SentryAPI.setToken("<jwt>"). ' +
-                  'Identity and project are remembered across reloads.', 'warn', 9000);
+                  'Click “Connect…” (top right) and paste your user UUID — see /docs ' +
+                  'on the backend to create one. The console remembers it.', 'warn', 9000);
             runBtn.disabled = false;
-            runBtn.textContent = 'Run Pipeline';
+            openConnect();
             return;
           }
           if (!api.projectId) {
-            toast('No project selected. Run once from the backend docs (/v1/docs): ' +
-                  'POST /v1/projects, then in the browser console run ' +
-                  'SentryAPI.setProjectId("<project uuid>").', 'warn', 9000);
+            toast('No project selected. Create one via POST /v1/projects (see /docs), ' +
+                  'then click “Connect…” and paste its UUID.', 'warn', 9000);
             runBtn.disabled = false;
-            runBtn.textContent = 'Run Pipeline';
+            openConnect();
             return;
           }
           let lastStage = null;

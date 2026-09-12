@@ -198,6 +198,18 @@
 .console-select:hover { border-color: var(--hairline-active); }
 .console-select:focus-visible { border-color: var(--ink-white); }
 
+/* Text inputs reuse the select chrome but without the dropdown arrow. */
+input.console-select {
+  appearance: textfield;
+  background-image: none;
+  padding: 6px 10px;
+  cursor: text;
+  max-width: none;
+}
+input.console-select:focus {
+  border-color: var(--ink-white);
+}
+
 .console-select option {
   background: var(--canvas-panel);
   color: var(--ink-bright);

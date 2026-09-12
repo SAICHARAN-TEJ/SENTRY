@@ -438,10 +438,80 @@ class SentryAPIClient {
     };
   }
 
-  /** SIMULATED: the backend has no alerts domain. */
+  /**
+   * SIMULATED: the backend has no alerts domain. Returns the console's demo
+   * dataset (from the original static console) so the Alerts tab, its
+   * filters, the pending-review counter and the dossier modal remain usable.
+   * Every row is demo content — never present it as a real detection.
+   */
   async fetchAlerts() {
-    console.warn('[SentryAPI] fetchAlerts: simulated data (no alerts domain in backend)');
-    return [];
+    console.warn('[SentryAPI] fetchAlerts: SIMULATED demo dataset (no alerts domain in backend)');
+    return [
+      {
+        id: 'ALT-2026-0391', aoi: 'AOI_01',
+        coord: '27.5874\u00b0 N, 91.8612\u00b0 E', utm: '45N 452410 3054320',
+        materialDelta: '+18.7% Impervious (+75 m\u00b2)', classification: 'PROBABLE STRUCTURE',
+        confidence: 0.91, status: 'HUMAN_REVIEW',
+        notes: 'Isolated new structure detected 240m from forward patrol line. No cloud interference.',
+        timestamp: '2026-03-08 04:58:12 UTC', provenanceId: 'PRV-S2A-20260308-019-B4B8B12',
+      },
+      {
+        id: 'ALT-2026-0392', aoi: 'AOI_01',
+        coord: '27.5842\u00b0 N, 91.8570\u00b0 E', utm: '45N 452120 3053980',
+        materialDelta: '+24.1% Impervious (+96 m\u00b2)', classification: 'PROBABLE ACCESS ROAD',
+        confidence: 0.88, status: 'CONFIRMED',
+        notes: 'Linear compaction continuous with known unpaved arterial. Connects to post.',
+        timestamp: '2026-03-08 04:58:14 UTC', provenanceId: 'PRV-S2A-20260308-019-B4B8B12',
+      },
+      {
+        id: 'ALT-2026-0393', aoi: 'AOI_01',
+        coord: '27.5910\u00b0 N, 91.8645\u00b0 E', utm: '45N 452780 3054690',
+        materialDelta: '+12.4% Impervious (+50 m\u00b2)', classification: 'BORDER DISCREPANCY',
+        confidence: 0.74, status: 'HUMAN_REVIEW',
+        notes: 'Sub-pixel change near crest. Border sector flagged for manual photo-analyst validation.',
+        timestamp: '2026-03-08 04:58:15 UTC', provenanceId: 'PRV-S2A-20260308-019-B4B8B12',
+      },
+      {
+        id: 'ALT-2026-0394', aoi: 'AOI_01',
+        coord: '27.5815\u00b0 N, 91.8522\u00b0 E', utm: '45N 451920 3053640',
+        materialDelta: '+38.2% Impervious (+152 m\u00b2)', classification: 'REINFORCED HELIPAD',
+        confidence: 0.96, status: 'CONFIRMED',
+        notes: 'Reinforced concrete surface verified via high B11/B12 SWIR reflectance signature.',
+        timestamp: '2026-03-08 04:58:16 UTC', provenanceId: 'PRV-S2A-20260308-019-B4B8B12',
+      },
+      {
+        id: 'ALT-2026-0395', aoi: 'AOI_01',
+        coord: '27.5898\u00b0 N, 91.8680\u00b0 E', utm: '45N 452900 3054520',
+        materialDelta: '+15.5% Impervious (+62 m\u00b2)', classification: 'SENTRY TOWER FOOTING',
+        confidence: 0.85, status: 'HUMAN_REVIEW',
+        notes: 'Elevated vantage point on rocky promontory. Shadow analysis confirms vertical elevation.',
+        timestamp: '2026-03-08 04:58:18 UTC', provenanceId: 'PRV-S2A-20260308-019-B4B8B12',
+      },
+      {
+        id: 'ALT-2026-0401', aoi: 'AOI_02',
+        coord: '33.7312\u00b0 N, 78.5910\u00b0 E', utm: '43N 462100 3732400',
+        materialDelta: '+31.0% Impervious (+124 m\u00b2)', classification: 'SHELTER COMPOUND',
+        confidence: 0.94, status: 'CONFIRMED',
+        notes: 'Cluster of 3 contiguous sub-pixel units. FCLS spectral match matches prefabricated shelter roof.',
+        timestamp: '2026-03-09 05:14:02 UTC', provenanceId: 'PRV-S2B-20260309-076-B4B8B12',
+      },
+      {
+        id: 'ALT-2026-0402', aoi: 'AOI_02',
+        coord: '33.7285\u00b0 N, 78.5840\u00b0 E', utm: '43N 461500 3732100',
+        materialDelta: '+22.4% Impervious (+90 m\u00b2)', classification: 'FINGER 4 BOAT RAMP',
+        confidence: 0.92, status: 'CONFIRMED',
+        notes: 'Concrete ramp extension protruding 18m into lake boundary. Highly coherent geometry.',
+        timestamp: '2026-03-09 05:14:05 UTC', provenanceId: 'PRV-S2B-20260309-076-B4B8B12',
+      },
+      {
+        id: 'ALT-2026-0403', aoi: 'AOI_02',
+        coord: '33.7340\u00b0 N, 78.5980\u00b0 E', utm: '43N 462700 3732700',
+        materialDelta: '+16.8% Impervious (+67 m\u00b2)', classification: 'NEW QUAY WALL',
+        confidence: 0.81, status: 'HUMAN_REVIEW',
+        notes: 'Vertical structure at shoreline gradient discontinuity. Requires confirmation.',
+        timestamp: '2026-03-09 05:14:08 UTC', provenanceId: 'PRV-S2B-20260309-076-B4B8B12',
+      },
+    ];
   }
 
   /** SIMULATED: no alert triage endpoint exists. */
