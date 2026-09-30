@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1920, height=1080" />
-    <title>SUBPIXEL-SENTRY Launch Video</title>
+    <title>SUBPIXEL-SENTRY Extended Tactical Launch</title>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
       @font-face {
@@ -134,13 +134,13 @@
         overflow: hidden;
       }
 
-      /* SCENE 1: THE HOOK */
+      /* SCENE 1: THE DOCTRINE */
       #scene-1 {
         background: #020204;
       }
       .dem-bg {
         position: absolute;
-        inset: -40px;
+        inset: -50px;
         background-image: url('assets/img/screenshot_3d_mode.jpg');
         background-size: cover;
         background-position: center;
@@ -150,7 +150,7 @@
       .dem-vignette {
         position: absolute;
         inset: 0;
-        background: radial-gradient(circle at center, rgba(0,0,0,0.2) 20%, rgba(0,0,0,0.92) 80%);
+        background: radial-gradient(circle at center, rgba(0,0,0,0.15) 20%, rgba(0,0,0,0.92) 80%);
       }
       .grid-lines {
         position: absolute;
@@ -178,19 +178,19 @@
         color: #ef4444;
         text-transform: uppercase;
         margin-bottom: 20px;
-        background: rgba(0, 0, 0, 0.6);
-        padding: 6px 18px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 6px 20px;
         border: 1px solid rgba(239, 68, 68, 0.4);
       }
       .s1-title {
         font-family: 'Barlow', sans-serif;
-        font-size: 110px;
+        font-size: 120px;
         font-weight: 700;
         letter-spacing: 0.04em;
         line-height: 0.95;
         color: #ffffff;
         text-transform: uppercase;
-        text-shadow: 0 0 40px rgba(0, 0, 0, 0.9);
+        text-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
       }
       .s1-subtitle {
         font-family: 'IBM Plex Mono', monospace;
@@ -203,44 +203,114 @@
       .s1-coords-bar {
         margin-top: 40px;
         display: flex;
-        gap: 32px;
+        gap: 36px;
         font-family: 'IBM Plex Mono', monospace;
         font-size: 14px;
         color: #94a3b8;
-        background: rgba(0, 0, 0, 0.7);
+        background: rgba(0, 0, 0, 0.75);
         border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 8px 24px;
+        padding: 10px 28px;
       }
 
-      /* SCENE 2: THE MISSION */
+      /* SCENE 2: THE SENSOR UNCERTAINTY */
       #scene-2 {
-        background: #050608;
+        background: #040507;
       }
-      .map-bg {
+      .s2-map-bg {
         position: absolute;
         inset: 0;
         background-image: url('assets/img/screenshot_map.png');
         background-size: cover;
         background-position: center;
-        filter: brightness(0.5) contrast(1.1);
+        filter: blur(4px) brightness(0.4) contrast(1.1);
       }
-      .s2-ui-layer {
+      .s2-container {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 80px;
+        z-index: 10;
+      }
+      .s2-bands-header {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 16px;
+        color: #94a3b8;
+        letter-spacing: 0.25em;
+        margin-bottom: 24px;
+        text-transform: uppercase;
+      }
+      .s2-bands-row {
+        display: flex;
+        gap: 24px;
+        margin-bottom: 40px;
+      }
+      .s2-band-card {
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        padding: 20px 28px;
+        text-align: center;
+        width: 220px;
+      }
+      .s2-band-name {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+      }
+      .s2-band-meta {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 13px;
+        color: #94a3b8;
+        margin-top: 6px;
+      }
+      .s2-warning-card {
+        width: 960px;
+        background: rgba(20, 10, 10, 0.92);
+        border: 2px solid #ef4444;
+        padding: 28px 36px;
+        box-shadow: 0 0 40px rgba(239, 68, 68, 0.3);
+      }
+      .s2-warning-title {
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 20px;
+        font-weight: 700;
+        color: #f87171;
+        letter-spacing: 0.1em;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .s2-warning-desc {
+        font-family: 'Barlow', sans-serif;
+        font-size: 22px;
+        color: #e2e8f0;
+        line-height: 1.4;
+      }
+
+      /* SCENE 3: THE PIPELINE */
+      #scene-3 {
+        background: #050608;
+      }
+      .s3-ui-layer {
         position: absolute;
         inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 80px 100px;
-        gap: 60px;
       }
-      .s2-console-card {
-        width: 820px;
-        background: rgba(10, 14, 20, 0.92);
+      .s3-console-card {
+        width: 860px;
+        background: rgba(10, 14, 20, 0.95);
         border: 1px solid rgba(255, 255, 255, 0.25);
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
-        padding: 32px 36px;
+        box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+        padding: 36px 40px;
       }
-      .s2-card-header {
+      .s3-card-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -248,14 +318,14 @@
         padding-bottom: 16px;
         margin-bottom: 24px;
       }
-      .s2-card-title {
+      .s3-card-title {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 18px;
         font-weight: 600;
         letter-spacing: 0.1em;
         color: #ffffff;
       }
-      .s2-sensor-tag {
+      .s3-sensor-tag {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 13px;
         color: #ffffff;
@@ -264,28 +334,28 @@
         padding: 4px 10px;
         font-weight: 600;
       }
-      .s2-bands-list {
+      .s3-pipeline-stages {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
         gap: 12px;
         margin-bottom: 28px;
       }
-      .s2-band-pill {
+      .s3-stage-pill {
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.2);
         padding: 12px 14px;
         font-family: 'IBM Plex Mono', monospace;
-        font-size: 14px;
+        font-size: 13px;
         color: #e2e8f0;
         text-align: center;
       }
-      .s2-band-pill.active {
-        background: rgba(59, 130, 246, 0.2);
+      .s3-stage-pill.active {
+        background: rgba(59, 130, 246, 0.25);
         border-color: #3b82f6;
         color: #ffffff;
         font-weight: 600;
       }
-      .s2-run-btn {
+      .s3-run-btn {
         width: 100%;
         background: #b91c1c;
         border: 1px solid #ef4444;
@@ -302,11 +372,11 @@
         align-items: center;
         gap: 12px;
       }
-      .s2-progress-box {
+      .s3-progress-box {
         margin-top: 24px;
         opacity: 0;
       }
-      .s2-progress-label {
+      .s3-progress-label {
         display: flex;
         justify-content: space-between;
         font-family: 'IBM Plex Mono', monospace;
@@ -314,18 +384,18 @@
         color: #cbd5e1;
         margin-bottom: 8px;
       }
-      .s2-progress-track {
+      .s3-progress-track {
         width: 100%;
-        height: 8px;
+        height: 10px;
         background: rgba(255, 255, 255, 0.1);
         overflow: hidden;
       }
-      .s2-progress-fill {
+      .s3-progress-fill {
         width: 0%;
         height: 100%;
         background: #3b82f6;
       }
-      .s2-cursor {
+      .s3-cursor {
         position: absolute;
         width: 24px;
         height: 24px;
@@ -333,18 +403,18 @@
         pointer-events: none;
       }
 
-      /* SCENE 3: THE REVEAL */
-      #scene-3 {
+      /* SCENE 4: THE REVEAL */
+      #scene-4 {
         background: #000000;
       }
-      .s3-split-container {
+      .s4-split-container {
         position: absolute;
         inset: 0;
         width: 1920px;
         height: 1080px;
         overflow: hidden;
       }
-      .s3-raw-layer {
+      .s4-raw-layer {
         position: absolute;
         inset: 0;
         background-image: url('assets/img/screenshot_map.png');
@@ -352,7 +422,7 @@
         background-position: 45% 55%;
         filter: blur(8px) contrast(0.85) saturate(0.8);
       }
-      .s3-sharp-layer {
+      .s4-sharp-layer {
         position: absolute;
         inset: 0;
         background-image: url('assets/img/screenshot_map.png');
@@ -361,7 +431,7 @@
         filter: contrast(1.3) brightness(1.05) saturate(1.1);
         clip-path: inset(0 0 0 50%);
       }
-      .s3-slider-bar {
+      .s4-slider-bar {
         position: absolute;
         top: 0;
         bottom: 0;
@@ -371,7 +441,7 @@
         box-shadow: 0 0 15px rgba(255, 255, 255, 0.8), 0 0 30px rgba(59, 130, 246, 0.5);
         z-index: 30;
       }
-      .s3-slider-handle {
+      .s4-slider-handle {
         position: absolute;
         top: 50%;
         left: 50%;
@@ -385,52 +455,52 @@
         align-items: center;
         justify-content: center;
       }
-      .s3-handle-arrow {
+      .s4-handle-arrow {
         width: 16px;
         height: 2px;
         background: #000000;
       }
-      .s3-label-left {
+      .s4-label-left {
         position: absolute;
         top: 100px;
         left: 80px;
         background: rgba(0, 0, 0, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 16px 24px;
+        padding: 18px 26px;
         font-family: 'IBM Plex Mono', monospace;
         z-index: 40;
       }
-      .s3-label-right {
+      .s4-label-right {
         position: absolute;
         top: 100px;
         right: 80px;
         background: rgba(0, 0, 0, 0.85);
         border: 1px solid #3b82f6;
-        padding: 16px 24px;
+        padding: 18px 26px;
         font-family: 'IBM Plex Mono', monospace;
         text-align: right;
         z-index: 40;
       }
-      .s3-tag {
+      .s4-tag {
         font-size: 13px;
         font-weight: 600;
         letter-spacing: 0.1em;
         margin-bottom: 4px;
       }
-      .s3-tag-raw { color: #94a3b8; }
-      .s3-tag-recon { color: #60a5fa; }
-      .s3-res-val {
-        font-size: 32px;
+      .s4-tag-raw { color: #94a3b8; }
+      .s4-tag-recon { color: #60a5fa; }
+      .s4-res-val {
+        font-size: 34px;
         font-weight: 700;
         color: #ffffff;
       }
-      .s3-gain-badge {
+      .s4-gain-badge {
         position: absolute;
         bottom: 80px;
         right: 80px;
         background: rgba(15, 23, 42, 0.95);
         border: 1px solid #22c55e;
-        padding: 14px 28px;
+        padding: 16px 32px;
         display: flex;
         align-items: center;
         gap: 16px;
@@ -441,35 +511,35 @@
         z-index: 40;
       }
 
-      /* SCENE 4: THE INTERROGATION */
-      #scene-4 {
+      /* SCENE 5: THE INTERROGATION */
+      #scene-5 {
         background: #050508;
       }
-      .s4-bg {
+      .s5-bg {
         position: absolute;
         inset: 0;
         background-image: url('assets/img/screenshot_alerts.png');
         background-size: cover;
         background-position: center;
-        filter: brightness(0.4) contrast(1.2);
+        filter: brightness(0.35) contrast(1.25);
       }
-      .s4-alert-banner {
+      .s5-alert-banner {
         position: absolute;
-        top: 120px;
+        top: 100px;
         left: 50%;
         transform: translateX(-50%);
-        width: 1080px;
+        width: 1120px;
         background: #990000;
         border: 2px solid #ef4444;
-        box-shadow: 0 0 40px rgba(239, 68, 68, 0.6);
-        padding: 20px 32px;
+        box-shadow: 0 0 50px rgba(239, 68, 68, 0.6);
+        padding: 20px 36px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         font-family: 'IBM Plex Mono', monospace;
         z-index: 50;
       }
-      .s4-alert-title {
+      .s5-alert-title {
         font-size: 28px;
         font-weight: 700;
         letter-spacing: 0.1em;
@@ -478,24 +548,24 @@
         align-items: center;
         gap: 16px;
       }
-      .s4-alert-meta {
+      .s5-alert-meta {
         font-size: 15px;
         color: #fecaca;
         font-weight: 600;
       }
-      .s4-dossier-card {
+      .s5-dossier-card {
         position: absolute;
-        top: 260px;
+        top: 240px;
         left: 50%;
         transform: translateX(-50%);
-        width: 1080px;
-        background: rgba(10, 15, 24, 0.95);
+        width: 1120px;
+        background: rgba(10, 15, 24, 0.96);
         border: 1px solid rgba(255, 255, 255, 0.3);
         box-shadow: 0 30px 60px rgba(0, 0, 0, 0.9);
         padding: 36px 44px;
         z-index: 45;
       }
-      .s4-dossier-header {
+      .s5-dossier-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -503,15 +573,15 @@
         padding-bottom: 18px;
         margin-bottom: 28px;
       }
-      .s4-dossier-title {
+      .s5-dossier-title {
         font-family: 'Barlow', sans-serif;
-        font-size: 26px;
+        font-size: 28px;
         font-weight: 700;
         letter-spacing: 0.05em;
         color: #ffffff;
         text-transform: uppercase;
       }
-      .s4-proof-badge {
+      .s5-proof-badge {
         background: #14532d;
         border: 1px solid #22c55e;
         color: #86efac;
@@ -521,37 +591,37 @@
         padding: 6px 14px;
         letter-spacing: 0.1em;
       }
-      .s4-metrics-grid {
+      .s5-metrics-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 20px;
         margin-bottom: 28px;
       }
-      .s4-metric-tile {
+      .s5-metric-tile {
         background: rgba(255, 255, 255, 0.04);
         border: 1px solid rgba(255, 255, 255, 0.15);
         padding: 20px;
       }
-      .s4-metric-name {
+      .s5-metric-name {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 13px;
         color: #94a3b8;
         letter-spacing: 0.1em;
         margin-bottom: 6px;
       }
-      .s4-metric-val {
+      .s5-metric-val {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 32px;
         font-weight: 700;
         color: #ffffff;
       }
-      .s4-metric-status {
+      .s5-metric-status {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 12px;
         color: #4ade80;
         margin-top: 6px;
       }
-      .s4-dossier-footer {
+      .s5-dossier-footer {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 14px;
         color: #cbd5e1;
@@ -561,19 +631,19 @@
         justify-content: space-between;
       }
 
-      /* SCENE 5: OUTRO */
-      #scene-5 {
+      /* SCENE 6: 3D DEM & OUTRO */
+      #scene-6 {
         background: #000000;
       }
-      .s5-dem-bg {
+      .s6-dem-bg {
         position: absolute;
-        inset: 0;
+        inset: -50px;
         background-image: url('assets/img/screenshot_3d_mode.jpg');
         background-size: cover;
         background-position: center;
-        filter: grayscale(90%) brightness(0.35) contrast(1.3);
+        filter: grayscale(85%) brightness(0.4) contrast(1.3);
       }
-      .s5-center {
+      .s6-center {
         position: absolute;
         inset: 0;
         display: flex;
@@ -583,38 +653,38 @@
         text-align: center;
         z-index: 10;
       }
-      .s5-line-1 {
+      .s6-line-1 {
         font-family: 'Barlow', sans-serif;
-        font-size: 72px;
+        font-size: 80px;
         font-weight: 700;
         letter-spacing: 0.08em;
         color: #ffffff;
         text-transform: uppercase;
         margin-bottom: 12px;
       }
-      .s5-line-2 {
+      .s6-line-2 {
         font-family: 'Barlow', sans-serif;
-        font-size: 72px;
+        font-size: 80px;
         font-weight: 700;
         letter-spacing: 0.08em;
         color: #ef4444;
         text-transform: uppercase;
         margin-bottom: 40px;
       }
-      .s5-brand-box {
+      .s6-brand-box {
         border-top: 2px solid #ffffff;
         padding-top: 24px;
-        width: 720px;
+        width: 820px;
       }
-      .s5-brand-title {
+      .s6-brand-title {
         font-family: 'Barlow', sans-serif;
-        font-size: 44px;
+        font-size: 48px;
         font-weight: 700;
         letter-spacing: 0.15em;
         color: #ffffff;
         text-transform: uppercase;
       }
-      .s5-brand-sub {
+      .s6-brand-sub {
         font-family: 'IBM Plex Mono', monospace;
         font-size: 16px;
         font-weight: 600;
@@ -631,7 +701,7 @@
       id="root"
       data-composition-id="main"
       data-start="0"
-      data-duration="23"
+      data-duration="48"
       data-width="1920"
       data-height="1080"
     >
@@ -639,9 +709,9 @@
       <audio
         id="bg-music"
         data-start="0"
-        data-duration="23"
+        data-duration="48"
         data-track-index="10"
-        data-volume="0.30"
+        data-volume="0.32"
         src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"
       ></audio>
 
@@ -650,43 +720,61 @@
         data-start="0.56"
         data-duration="1.48"
         data-track-index="11"
-        data-volume="0.80"
+        data-volume="0.85"
         src="assets/sfx/impact/impactBell_heavy_000.ogg"
       ></audio>
 
       <audio
-        id="sfx-click"
-        data-start="5.34"
-        data-duration="0.10"
+        id="sfx-select"
+        data-start="7.64"
+        data-duration="0.05"
         data-track-index="12"
         data-volume="0.75"
+        src="assets/sfx/interface/select_008.ogg"
+      ></audio>
+
+      <audio
+        id="sfx-click"
+        data-start="17.47"
+        data-duration="0.10"
+        data-track-index="13"
+        data-volume="0.80"
         src="assets/sfx/interface/click_001.ogg"
       ></audio>
 
       <audio
         id="sfx-reveal"
-        data-start="8.74"
+        data-start="22.93"
         data-duration="0.12"
-        data-track-index="13"
-        data-volume="0.80"
+        data-track-index="14"
+        data-volume="0.85"
         src="assets/sfx/impact/impactSoft_medium_000.ogg"
       ></audio>
 
       <audio
         id="sfx-alert"
-        data-start="15.29"
+        data-start="33.82"
         data-duration="0.03"
-        data-track-index="14"
+        data-track-index="15"
         data-volume="0.85"
         src="assets/sfx/interface/glitch_002.ogg"
       ></audio>
 
       <audio
+        id="sfx-stamp"
+        data-start="37.10"
+        data-duration="0.15"
+        data-track-index="16"
+        data-volume="0.75"
+        src="assets/sfx/interface/switch_001.ogg"
+      ></audio>
+
+      <audio
         id="sfx-outro"
-        data-start="20.19"
+        data-start="42.55"
         data-duration="0.65"
-        data-track-index="15"
-        data-volume="0.80"
+        data-track-index="17"
+        data-volume="0.85"
         src="assets/sfx/impact/impactBell_heavy_003.ogg"
       ></audio>
 
@@ -702,17 +790,17 @@
             <span class="hud-live-dot"></span>
             <span>SUBPIXEL-SENTRY // TACTICAL INTELLIGENCE</span>
           </div>
-          <div id="hud-telemetry">SYS_ID: SENTRY-HIM-0492 | STATUS: ACTIVE</div>
+          <div id="hud-telemetry">SYS_ID: SENTRY-HIM-0492 | STATUS: OPERATIONAL</div>
         </div>
 
         <div class="hud-footer">
-          <div>ESA SENTINEL-2 L2A HARVEST ENGINE</div>
+          <div>ESA SENTINEL-2 L2A MULTISPECTRAL ENGINE</div>
           <div>PRECISION: 2.5M/PX GROUND RESOLUTION</div>
         </div>
       </div>
 
-      <!-- SCENE 1: THE HOOK (0s - 4s) -->
-      <div id="scene-1" class="clip" data-start="0" data-duration="4">
+      <!-- SCENE 1: THE DOCTRINE (0s - 7s) -->
+      <div id="scene-1" class="clip" data-start="0" data-duration="7">
         <div class="dem-bg" id="s1-bg" data-layout-allow-overflow="true"></div>
         <div class="dem-vignette"></div>
         <div class="grid-lines"></div>
@@ -720,79 +808,117 @@
         <div class="s1-center-box" id="s1-content">
           <div class="s1-pre-title" id="s1-pre">SATELLITE SURVEILLANCE DOCTRINE</div>
           <h1 class="s1-title" id="s1-title">TRUST, BUT VERIFY.</h1>
-          <p class="s1-subtitle" id="s1-sub">MATHEMATICAL SUPER-RESOLUTION FOR STRATEGIC RECON</p>
+          <p class="s1-subtitle" id="s1-sub">MATHEMATICAL SUPER-RESOLUTION FOR STRATEGIC DEFENSE</p>
           <div class="s1-coords-bar" id="s1-bar">
-            <span>GRID: 34°15'12"N 77°35'44"E</span>
+            <span>TARGET GRID: 34°15'12"N 77°35'44"E</span>
             <span>ELEVATION: 4,820M</span>
             <span>SENSOR: SENTINEL-2 MSI</span>
           </div>
         </div>
       </div>
 
-      <!-- SCENE 2: THE MISSION (4s - 9s) -->
-      <div id="scene-2" class="clip" data-start="4" data-duration="5">
-        <div class="map-bg"></div>
-        <div class="s2-ui-layer">
-          <div class="s2-console-card" id="s2-card">
-            <div class="s2-card-header">
-              <span class="s2-card-title">MISSION PARAMETERS // TARGET RECON</span>
-              <span class="s2-sensor-tag">L2A ARCHIVE LIVE</span>
+      <!-- SCENE 2: THE SENSOR UNCERTAINTY (7s - 15s) -->
+      <div id="scene-2" class="clip" data-start="7" data-duration="8">
+        <div class="s2-map-bg"></div>
+        <div class="s2-container" id="s2-content">
+          <div class="s2-bands-header" id="s2-hdr">SENTINEL-2 L2A RAW BANDS // ACQUIRED</div>
+          <div class="s2-bands-row" id="s2-bands">
+            <div class="s2-band-card">
+              <div class="s2-band-name">B02 BLUE</div>
+              <div class="s2-band-meta">10M RESOLUTION</div>
+            </div>
+            <div class="s2-band-card">
+              <div class="s2-band-name">B03 GREEN</div>
+              <div class="s2-band-meta">10M RESOLUTION</div>
+            </div>
+            <div class="s2-band-card">
+              <div class="s2-band-name">B04 RED</div>
+              <div class="s2-band-meta">10M RESOLUTION</div>
+            </div>
+            <div class="s2-band-card">
+              <div class="s2-band-name">B08 NIR</div>
+              <div class="s2-band-meta">10M RESOLUTION</div>
+            </div>
+          </div>
+
+          <div class="s2-warning-card" id="s2-warn">
+            <div class="s2-warning-title">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="#f87171">
+                <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+              </svg>
+              <span>OPERATIONAL HAZARD: RAW 10M UNCERTAINTY HIGH</span>
+            </div>
+            <div class="s2-warning-desc">
+              Raw 10m GSD obscures tactical border infrastructure. Generative AI without mathematical verification risks fatal hallucinated targets.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCENE 3: THE PIPELINE (15s - 23s) -->
+      <div id="scene-3" class="clip" data-start="15" data-duration="8">
+        <div class="s2-map-bg"></div>
+        <div class="s3-ui-layer">
+          <div class="s3-console-card" id="s3-card">
+            <div class="s3-card-header">
+              <span class="s3-card-title">SUBPIXEL RECONSTRUCTION PIPELINE</span>
+              <span class="s3-sensor-tag">ONLINE & ARMED</span>
             </div>
 
-            <div class="s2-bands-list">
-              <div class="s2-band-pill active">B02 BLUE 10M</div>
-              <div class="s2-band-pill active">B03 GREEN 10M</div>
-              <div class="s2-band-pill active">B04 RED 10M</div>
-              <div class="s2-band-pill active">B08 NIR 10M</div>
+            <div class="s3-pipeline-stages">
+              <div class="s3-stage-pill active">1. TILING</div>
+              <div class="s3-stage-pill active">2. NEURAL SR</div>
+              <div class="s3-stage-pill active">3. STITCHING</div>
+              <div class="s3-stage-pill active">4. AUDIT</div>
             </div>
 
-            <div class="s2-run-btn" id="s2-button">
+            <div class="s3-run-btn" id="s3-button">
               <span>INITIATE SUBPIXEL RECONSTRUCTION</span>
             </div>
 
-            <div class="s2-progress-box" id="s2-prog-box">
-              <div class="s2-progress-label">
+            <div class="s3-progress-box" id="s3-prog-box">
+              <div class="s3-progress-label">
                 <span>RECONSTRUCTION PROGRESS</span>
-                <span id="s2-pct">0%</span>
+                <span id="s3-pct">0%</span>
               </div>
-              <div class="s2-progress-track">
-                <div class="s2-progress-fill" id="s2-fill"></div>
+              <div class="s3-progress-track">
+                <div class="s3-progress-fill" id="s3-fill"></div>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Simulated Cursor SVG -->
-        <svg id="s2-cursor" class="s2-cursor" viewBox="0 0 24 24" fill="none">
+        <svg id="s3-cursor" class="s3-cursor" viewBox="0 0 24 24" fill="none">
           <path d="M4 3L11 21L14 13L21 11L4 3Z" fill="#ffffff" stroke="#000000" stroke-width="1.5"/>
         </svg>
       </div>
 
-      <!-- SCENE 3: THE REVEAL (9s - 15s) -->
-      <div id="scene-3" class="clip" data-start="9" data-duration="6">
-        <div class="s3-split-container">
-          <div class="s3-raw-layer"></div>
-          <div class="s3-sharp-layer" id="s3-sharp"></div>
+      <!-- SCENE 4: THE REVEAL (23s - 33s) -->
+      <div id="scene-4" class="clip" data-start="23" data-duration="10">
+        <div class="s4-split-container">
+          <div class="s4-raw-layer"></div>
+          <div class="s4-sharp-layer" id="s4-sharp"></div>
 
-          <div class="s3-slider-bar" id="s3-slider">
-            <div class="s3-slider-handle">
-              <div class="s3-handle-arrow"></div>
+          <div class="s4-slider-bar" id="s4-slider">
+            <div class="s4-slider-handle">
+              <div class="s4-handle-arrow"></div>
             </div>
           </div>
 
-          <div class="s3-label-left" id="s3-lbl-left">
-            <div class="s3-tag s3-tag-raw">RAW SATELLITE CAPTURE</div>
-            <div class="s3-res-val">10.0 M/PX</div>
+          <div class="s4-label-left" id="s4-lbl-left">
+            <div class="s4-tag s4-tag-raw">RAW SATELLITE CAPTURE</div>
+            <div class="s4-res-val">10.0 M/PX</div>
             <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">ESA SENTINEL-2 L2A RAW</div>
           </div>
 
-          <div class="s3-label-right" id="s3-lbl-right">
-            <div class="s3-tag s3-tag-recon">SUPER-RESOLVED RECONSTRUCTION</div>
-            <div class="s3-res-val">2.5 M/PX</div>
+          <div class="s4-label-right" id="s4-lbl-right">
+            <div class="s4-tag s4-tag-recon">SUPER-RESOLVED RECONSTRUCTION</div>
+            <div class="s4-res-val">2.5 M/PX</div>
             <div style="font-size: 12px; color: #60a5fa; margin-top: 4px;">SUBPIXEL NEURAL ENGINE</div>
           </div>
 
-          <div class="s3-gain-badge" id="s3-gain">
+          <div class="s4-gain-badge" id="s4-gain">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5">
               <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
@@ -801,68 +927,68 @@
         </div>
       </div>
 
-      <!-- SCENE 4: THE INTERROGATION (15s - 20s) -->
-      <div id="scene-4" class="clip" data-start="15" data-duration="5">
-        <div class="s4-bg"></div>
+      <!-- SCENE 5: THE INTERROGATION (33s - 42s) -->
+      <div id="scene-5" class="clip" data-start="33" data-duration="9">
+        <div class="s5-bg"></div>
 
-        <div class="s4-alert-banner" id="s4-banner">
-          <div class="s4-alert-title">
+        <div class="s5-alert-banner" id="s5-banner">
+          <div class="s5-alert-title">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="#ffffff">
               <path d="M12 2L1 21h22L12 2zm0 3.5L19.5 19h-15L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/>
             </svg>
             <span>CRITICAL: TARGET SIGNATURE MATCHED</span>
           </div>
-          <div class="s4-alert-meta">ANOMALY CONFIDENCE: 99.4%</div>
+          <div class="s5-alert-meta">ANOMALY CONFIDENCE: 99.4%</div>
         </div>
 
-        <div class="s4-dossier-card" id="s4-card">
-          <div class="s4-dossier-header">
+        <div class="s5-dossier-card" id="s5-card">
+          <div class="s5-dossier-header">
             <div>
-              <div class="s4-dossier-title">MATHEMATICAL EVIDENCE DOSSIER</div>
+              <div class="s5-dossier-title">MATHEMATICAL EVIDENCE DOSSIER</div>
               <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #94a3b8; margin-top: 4px;">
                 SECTOR: PANGONG TSO SECTOR 4G // AI HALLUCINATION AUDIT
               </div>
             </div>
-            <div class="s4-proof-badge">ALL CHECKS PASSED</div>
+            <div class="s5-proof-badge" id="s5-badge">AUDIT PASSED</div>
           </div>
 
-          <div class="s4-metrics-grid">
-            <div class="s4-metric-tile" id="s4-tile-1">
-              <div class="s4-metric-name">SPECTRAL ANGLE (SAM)</div>
-              <div class="s4-metric-val">0.0418</div>
-              <div class="s4-metric-status">PASS (&lt; 0.050 rad)</div>
+          <div class="s5-metrics-grid">
+            <div class="s5-metric-tile" id="s5-tile-1">
+              <div class="s5-metric-name">SPECTRAL ANGLE (SAM)</div>
+              <div class="s5-metric-val">0.0418</div>
+              <div class="s5-metric-status">PASS (&lt; 0.050 rad)</div>
             </div>
-            <div class="s4-metric-tile" id="s4-tile-2">
-              <div class="s4-metric-name">ERGAS RELATIVE ERROR</div>
-              <div class="s4-metric-val">1.142</div>
-              <div class="s4-metric-status">PASS (&lt; 2.000)</div>
+            <div class="s5-metric-tile" id="s5-tile-2">
+              <div class="s5-metric-name">ERGAS RELATIVE ERROR</div>
+              <div class="s5-metric-val">1.142</div>
+              <div class="s5-metric-status">PASS (&lt; 2.000)</div>
             </div>
-            <div class="s4-metric-tile" id="s4-tile-3">
-              <div class="s4-metric-name">STRUCTURAL SSIM</div>
-              <div class="s4-metric-val">0.968</div>
-              <div class="s4-metric-status">PASS (&gt; 0.920)</div>
+            <div class="s5-metric-tile" id="s5-tile-3">
+              <div class="s5-metric-name">STRUCTURAL SSIM</div>
+              <div class="s5-metric-val">0.968</div>
+              <div class="s5-metric-status">PASS (&gt; 0.920)</div>
             </div>
           </div>
 
-          <div class="s4-dossier-footer">
+          <div class="s5-dossier-footer">
             <span>TARGET CLASSIFICATION: MILITARY INFRASTRUCTURE (FORTIFIED BARRACKS)</span>
             <span style="color: #4ade80;">ZERO SYNTHETIC ARTIFACTS CONFIRMED</span>
           </div>
         </div>
       </div>
 
-      <!-- SCENE 5: THE OUTRO (20s - 23s) -->
-      <div id="scene-5" class="clip" data-start="20" data-duration="3">
-        <div class="s5-dem-bg" id="s5-bg" data-layout-allow-overflow="true"></div>
+      <!-- SCENE 6: 3D DEM & OUTRO (42s - 48s) -->
+      <div id="scene-6" class="clip" data-start="42" data-duration="6">
+        <div class="s6-dem-bg" id="s6-bg" data-layout-allow-overflow="true"></div>
         <div class="dem-vignette"></div>
 
-        <div class="s5-center">
-          <div class="s5-line-1" id="s5-t1">FIND THE UNSEEN.</div>
-          <div class="s5-line-2" id="s5-t2">PROVE IT'S REAL.</div>
+        <div class="s6-center">
+          <div class="s6-line-1" id="s6-t1">FIND THE UNSEEN.</div>
+          <div class="s6-line-2" id="s6-t2">PROVE IT'S REAL.</div>
 
-          <div class="s5-brand-box" id="s5-box">
-            <div class="s5-brand-title">SUBPIXEL-SENTRY</div>
-            <div class="s5-brand-sub">TACTICAL LAND-COVER INTELLIGENCE // DEPLOYED</div>
+          <div class="s6-brand-box" id="s6-box">
+            <div class="s6-brand-title">SUBPIXEL-SENTRY</div>
+            <div class="s6-brand-sub">TACTICAL LAND-COVER INTELLIGENCE // SIH26142 (NTRO)</div>
           </div>
         </div>
       </div>
@@ -873,170 +999,191 @@
       const tl = gsap.timeline({ paused: true });
 
       // ==========================================
-      // SCENE 1: THE HOOK (0s - 4s)
+      // SCENE 1: THE DOCTRINE (0s - 7s)
       // ==========================================
-      // Camera drift on 3D DEM
       tl.fromTo("#s1-bg", 
         { scale: 1.05, x: 0, y: 0 }, 
-        { scale: 1.15, x: -20, y: -15, duration: 4, ease: "none" }, 
+        { scale: 1.18, x: -30, y: -20, duration: 7, ease: "none" }, 
         0
       );
 
-      // Pre-title reveal
       tl.fromTo("#s1-pre", 
         { opacity: 0, y: -20 }, 
         { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 
         0.2
       );
 
-      // Major beat at 0.56s (beat-locked)
-      // slam in the title "TRUST, BUT VERIFY."
+      // Major beat at 0.56s (slam in the title)
       tl.fromTo("#s1-title", 
         { opacity: 0, scale: 1.4, filter: "blur(12px)" }, 
-        { opacity: 1, scale: 1.0, filter: "blur(0px)", duration: 0.35, ease: "power4.out" }, 
+        { opacity: 1, scale: 1.0, filter: "blur(0px)", duration: 0.4, ease: "power4.out" }, 
         0.56
       );
 
       tl.fromTo("#s1-sub", 
         { opacity: 0, y: 20 }, 
         { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 
-        0.9
+        1.1
       );
 
       tl.fromTo("#s1-bar", 
         { opacity: 0, scale: 0.95 }, 
-        { opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }, 
-        1.2
+        { opacity: 1, scale: 1, duration: 0.5, ease: "power2.out" }, 
+        1.64
       );
 
-      // Fade out Scene 1 content at 3.6s
-      tl.to("#s1-content", { opacity: 0, duration: 0.35, ease: "power2.in" }, 3.6);
+      tl.to("#s1-content", { opacity: 0, duration: 0.45, ease: "power2.in" }, 6.5);
 
       // ==========================================
-      // SCENE 2: THE MISSION (4s - 9s)
+      // SCENE 2: THE SENSOR UNCERTAINTY (7s - 15s)
       // ==========================================
-      // Card pop in
-      tl.fromTo("#s2-card", 
+      tl.fromTo("#s2-hdr", 
+        { opacity: 0, y: -20 }, 
+        { opacity: 1, y: 0, duration: 0.4 }, 
+        7.2
+      );
+
+      tl.fromTo("#s2-bands", 
+        { opacity: 0, y: 30 }, 
+        { opacity: 1, y: 0, duration: 0.6, ease: "power3.out" }, 
+        7.64
+      );
+
+      tl.fromTo("#s2-warn", 
+        { opacity: 0, scale: 0.95, y: 30 }, 
+        { opacity: 1, scale: 1, y: 0, duration: 0.5, ease: "back.out(1.2)" }, 
+        9.29
+      );
+
+      tl.to("#s2-content", { opacity: 0, duration: 0.4, ease: "power2.in" }, 14.5);
+
+      // ==========================================
+      // SCENE 3: THE PIPELINE (15s - 23s)
+      // ==========================================
+      tl.fromTo("#s3-card", 
         { opacity: 0, y: 40, scale: 0.96 }, 
         { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power3.out" }, 
-        4.1
+        15.2
       );
 
-      // Simulated cursor movement
-      tl.fromTo("#s2-cursor", 
+      // Simulated cursor movement to button
+      tl.fromTo("#s3-cursor", 
         { x: 1400, y: 800, opacity: 0 }, 
-        { x: 960, y: 640, opacity: 1, duration: 0.8, ease: "power2.inOut" }, 
-        4.4
+        { x: 960, y: 640, opacity: 1, duration: 1.0, ease: "power2.inOut" }, 
+        16.0
       );
 
-      // Button click hit at 5.34s (beat-grid)
-      tl.to("#s2-button", { scale: 0.96, backgroundColor: "#ef4444", duration: 0.1 }, 5.34);
-      tl.to("#s2-button", { scale: 1.0, backgroundColor: "#b91c1c", duration: 0.15 }, 5.44);
+      // Button click hit at 17.47s (strong beat)
+      tl.to("#s3-button", { scale: 0.96, backgroundColor: "#ef4444", duration: 0.1 }, 17.47);
+      tl.to("#s3-button", { scale: 1.0, backgroundColor: "#b91c1c", duration: 0.15 }, 17.57);
 
       // Progress bar activation
-      tl.to("#s2-prog-box", { opacity: 1, duration: 0.2 }, 5.5);
-      tl.fromTo("#s2-fill", 
+      tl.to("#s3-prog-box", { opacity: 1, duration: 0.2 }, 17.8);
+      tl.fromTo("#s3-fill", 
         { width: "0%" }, 
-        { width: "100%", duration: 2.8, ease: "power1.inOut" }, 
-        5.6
+        { width: "100%", duration: 4.2, ease: "power1.inOut" }, 
+        18.0
       );
 
-      // Text counter simulation
       const progressObj = { val: 0 };
       tl.to(progressObj, {
         val: 100,
-        duration: 2.8,
+        duration: 4.2,
         ease: "power1.inOut",
         onUpdate: () => {
-          const pctEl = document.getElementById("s2-pct");
+          const pctEl = document.getElementById("s3-pct");
           if (pctEl) pctEl.innerText = Math.round(progressObj.val) + "%";
         }
-      }, 5.6);
+      }, 18.0);
 
-      // Cursor fade out
-      tl.to("#s2-cursor", { opacity: 0, duration: 0.3 }, 6.0);
-      tl.to("#s2-card", { opacity: 0, y: -20, duration: 0.35, ease: "power2.in" }, 8.6);
+      tl.to("#s3-cursor", { opacity: 0, duration: 0.3 }, 18.5);
+      tl.to("#s3-card", { opacity: 0, y: -20, duration: 0.4, ease: "power2.in" }, 22.5);
 
       // ==========================================
-      // SCENE 3: THE REVEAL (9s - 15s)
+      // SCENE 4: THE REVEAL (23s - 33s)
       // ==========================================
-      // Labels reveal
-      tl.fromTo("#s3-lbl-left", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4 }, 9.1);
-      tl.fromTo("#s3-lbl-right", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.4 }, 9.1);
+      tl.fromTo("#s4-lbl-left", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4 }, 23.1);
+      tl.fromTo("#s4-lbl-right", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.4 }, 23.1);
 
-      // Strong cue lock at 9.29s (strong_beat): Split slider sweeps from left across to right
-      // Using pure transform x: from 384px (20% of 1920) to 1536px (80% of 1920)
-      tl.fromTo("#s3-slider", 
-        { x: 384 }, 
-        { x: 1536, duration: 4.8, ease: "power2.inOut" }, 
-        9.29
+      // Strong cue lock at 22.93s: Split slider sweeps from left across to right
+      tl.fromTo("#s4-slider", 
+        { x: 288 }, 
+        { x: 1632, duration: 8.5, ease: "power1.inOut" }, 
+        23.46
       );
 
-      tl.fromTo("#s3-sharp", 
-        { clipPath: "inset(0 0 0 20%)" }, 
-        { clipPath: "inset(0 0 0 80%)", duration: 4.8, ease: "power2.inOut" }, 
-        9.29
+      tl.fromTo("#s4-sharp", 
+        { clipPath: "inset(0 0 0 15%)" }, 
+        { clipPath: "inset(0 0 0 85%)", duration: 8.5, ease: "power1.inOut" }, 
+        23.46
       );
 
-      // Badge pop at 11.46s (beat-grid)
-      tl.fromTo("#s3-gain", 
+      // Badge pop at 26.0s
+      tl.fromTo("#s4-gain", 
         { opacity: 0, y: 30, scale: 0.9 }, 
         { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.5)" }, 
-        11.46
+        26.0
       );
 
-      tl.to(["#s3-lbl-left", "#s3-lbl-right", "#s3-gain"], { opacity: 0, duration: 0.35 }, 14.6);
+      tl.to(["#s4-lbl-left", "#s4-lbl-right", "#s4-gain"], { opacity: 0, duration: 0.4 }, 32.5);
 
       // ==========================================
-      // SCENE 4: THE INTERROGATION (15s - 20s)
+      // SCENE 5: THE INTERROGATION (33s - 42s)
       // ==========================================
-      // Red Alert Banner slams in at 15.29s (beat-grid / alarm hit)
-      tl.fromTo("#s4-banner", 
+      // Red Alert Banner slams in at 33.82s
+      tl.fromTo("#s5-banner", 
         { opacity: 0, scale: 1.1, y: -30 }, 
         { opacity: 1, scale: 1, y: 0, duration: 0.3, ease: "power4.out" }, 
-        15.29
+        33.82
       );
 
-      // Evidence Dossier card slides in at 15.84s (beat-grid)
-      tl.fromTo("#s4-card", 
+      // Evidence Dossier card slides in at 34.5s
+      tl.fromTo("#s5-card", 
         { opacity: 0, y: 60 }, 
         { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 
-        15.84
+        34.5
       );
 
-      // Sequential metric tiles (beat-grid: 16.38s, 16.93s, 17.47s)
-      tl.fromTo("#s4-tile-1", { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.3, immediateRender: false }, 16.38);
-      tl.fromTo("#s4-tile-2", { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.3, immediateRender: false }, 16.93);
-      tl.fromTo("#s4-tile-3", { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.3, immediateRender: false }, 17.47);
+      // Sequential metric tiles
+      tl.fromTo("#s5-tile-1", { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.3, immediateRender: false }, 35.29);
+      tl.fromTo("#s5-tile-2", { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.3, immediateRender: false }, 35.84);
+      tl.fromTo("#s5-tile-3", { opacity: 0, y: 15 }, { opacity: 1, y: 0, duration: 0.3, immediateRender: false }, 36.38);
 
-      tl.to(["#s4-banner", "#s4-card"], { opacity: 0, scale: 0.97, duration: 0.35 }, 19.6);
+      // Audit badge stamp at 37.10s
+      tl.fromTo("#s5-badge", 
+        { scale: 1.5, opacity: 0 }, 
+        { scale: 1.0, opacity: 1, duration: 0.3, ease: "back.out(2)" }, 
+        37.10
+      );
+
+      tl.to(["#s5-banner", "#s5-card"], { opacity: 0, scale: 0.97, duration: 0.4 }, 41.5);
 
       // ==========================================
-      // SCENE 5: THE OUTRO (20s - 23s)
+      // SCENE 6: 3D DEM & OUTRO (42s - 48s)
       // ==========================================
-      tl.fromTo("#s5-bg", 
+      tl.fromTo("#s6-bg", 
         { scale: 1.0 }, 
-        { scale: 1.08, duration: 3.0, ease: "none" }, 
-        20.0
+        { scale: 1.12, duration: 6.0, ease: "none" }, 
+        42.0
       );
 
-      // Beat lock on final outro hit at 20.19s (impactBell)
-      tl.fromTo("#s5-t1", 
+      // Outro bell hit at 42.55s
+      tl.fromTo("#s6-t1", 
         { opacity: 0, y: 30 }, 
-        { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 
-        20.19
+        { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 
+        42.55
       );
 
-      tl.fromTo("#s5-t2", 
+      tl.fromTo("#s6-t2", 
         { opacity: 0, y: 30 }, 
-        { opacity: 1, y: 0, duration: 0.45, ease: "power3.out" }, 
-        20.75
+        { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 
+        43.3
       );
 
-      tl.fromTo("#s5-box", 
+      tl.fromTo("#s6-box", 
         { opacity: 0, scale: 0.95 }, 
-        { opacity: 1, scale: 1.0, duration: 0.5, ease: "power2.out" }, 
-        21.28
+        { opacity: 1, scale: 1.0, duration: 0.6, ease: "power2.out" }, 
+        44.2
       );
 
       // Expose timeline to Hyperframes runtime

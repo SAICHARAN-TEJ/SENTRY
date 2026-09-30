@@ -17,18 +17,19 @@ Built for the **Smart India Hackathon** problem statement **SIH26142** (*Nationa
 
 ## 🎬 Tactical Launch Briefing & Action Demo
 
-Experience SUBPIXEL-SENTRY in operation. The 23-second briefing below demonstrates raw 10m L2A acquisition, 2.5m/px neural reconstruction, real-time split-slider interrogation, and automated anomaly detection backed by an auditable Mathematical Evidence Dossier.
+Experience SUBPIXEL-SENTRY in operation. The 48-second extended briefing below demonstrates raw Sentinel-2 10m multispectral acquisition, spatial uncertainty hazards, 2.5m/px neural reconstruction, real-time split-slider interrogation, automated anomaly detection, and the auditable Mathematical Evidence Dossier.
 
 [![SUBPIXEL-SENTRY Launch Video](brag-output/brag.gif)](brag-output/brag.mp4)
 
 > 📹 **[▶ Watch Full 1080p Briefing (brag.mp4)](brag-output/brag.mp4)** &nbsp;|&nbsp; 🖼️ **[High-Res Poster Frame](brag-output/brag.jpg)** &nbsp;|&nbsp; 📋 **[Storyboard & Production Plan](brag-output/brag-plan.md)**
 
 ### Briefing Breakdown
-1. **The Hook (`00:00–00:04`)**: Strategic surveillance sweep across the 3D Himalayan DEM (34°15'N, 77°35'E) establishing the core doctrine: *Trust, but verify.*
-2. **The Mission (`00:04–00:09`)**: Tactical console selection of Sentinel-2 L2A multispectral bands (`B02 Blue`, `B03 Green`, `B04 Red`, `B08 NIR`) and pipeline execution.
-3. **The Reveal (`00:09–00:15`)**: Interactive split slider wiping across terrain, showing the 4× resolution multiplier transforming 10.0m blur into sharp 2.5m tactical detail.
-4. **The Interrogation (`00:15–00:20`)**: Red tactical alert triggers on matched target signature (`99.4% confidence`) with immediate mathematical validation audit (SAM, ERGAS, SSIM).
-5. **The Outro (`00:20–00:23`)**: Secure operational lockdown: *"Find the unseen. Prove it's real."*
+1. **The Tactical Doctrine (`00:00–00:07`)**: High-altitude surveillance sweep over the 3D Himalayan DEM (34°15'N, 77°35'E) with live coordinate locking and sensor pass telemetry: *Trust, but verify.*
+2. **Sensor Uncertainty Hazard (`00:07–00:15`)**: Multispectral band isolation (`B02 Blue`, `B03 Green`, `B04 Red`, `B08 NIR`) demonstrating how raw 10m pixelation obscures critical tactical targets.
+3. **Pipeline & Mission Execution (`00:15–00:23`)**: Tactical console selection, crosshair cursor targeting, and multi-frame subpixel super-resolution execution with live tiling telemetry.
+4. **4× Super-Resolution Reveal (`00:23–00:33`)**: Full-screen interactive split slider sweeping across terrain, transforming 10.0m blur into sharp 2.5m ground resolution (airfields, aprons, perimeter boundaries).
+5. **Anomaly Interrogation & Evidence Dossier (`00:33–00:42`)**: Red tactical alert triggers on matched target signature (`99.4% confidence`) with immediate mathematical validation audit (SAM: 0.0418 rad, ERGAS: 1.142, SSIM: 0.968).
+6. **3D Tactical DEM & Outro (`00:42–00:48`)**: Transition to high-relief 3D terrain with elevation contours and solar azimuth relief shadows: *"Find the unseen. Prove it's real."*
 
 ---
 

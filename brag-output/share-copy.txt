@@ -1,3 +1,4 @@
-SUBPIXEL-SENTRY.
-Trust, but verify the AI: super-resolving Sentinel-2 satellite imagery from 10m to 2.5m/px with full mathematical pixel interrogation.
+SUBPIXEL-SENTRY (Tactical Intelligence Cut).
+In defense reconnaissance, AI hallucination is an operational catastrophe.
+SENTRY super-resolves Sentinel-2 imagery from 10m to 2.5m/px and mathematically proves every pixel before analysts see it.
 Find the unseen. Prove it's real.
