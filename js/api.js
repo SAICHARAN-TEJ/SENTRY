@@ -7,9 +7,9 @@
  * X-Dev-User header when the backend runs with DEV_AUTH=true.
  *
  * Live vs simulated: job submission, job tracking, validations, reports,
- * artifacts, projects, scenes, models and the Copernicus connector are real
- * backend flows. The alerts table, pixel inspector and evidence dossiers have
- * NO backend counterpart yet (no alerts domain in the schema) — those methods
+ * artifacts, projects, scenes, models, alerts and the Copernicus connector are real
+ * backend flows. The pixel inspector and evidence dossiers have
+ * NO backend counterpart yet — those methods
  * are explicitly marked SIMULATED and serve deterministic local data instead
  * of silently pretending the backend answered.
  *
@@ -24,7 +24,7 @@
  * can show a live/offline badge.
  */
 
-const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8000';
+const DEFAULT_BACKEND_URL = 'http://127.0.0.1:8077';
 const TERMINAL_JOB_STATES = ['COMPLETED', 'FAILED', 'CANCELLED'];
 
 class SentryApiError extends Error {
@@ -45,6 +45,7 @@ class SentryAPIClient {
     this.projectId = localStorage.getItem('SENTRY_PROJECT_ID') || null;
     this.isLiveConnected = null; // null unknown, true live, false offline
     this._connecting = null;
+    this.discoveredVia = null;
   }
 
   // ---- configuration -------------------------------------------------------
@@ -78,6 +79,19 @@ class SentryAPIClient {
     return Boolean(this.token || this.devUser);
   }
 
+  /** Forget everything stored in this browser (poisoned URL? start over). */
+  resetSaved() {
+    for (const k of ['SENTRY_BACKEND_URL', 'SENTRY_AUTH_TOKEN', 'SENTRY_DEV_USER', 'SENTRY_PROJECT_ID']) {
+      localStorage.removeItem(k);
+    }
+    this.backendUrl = DEFAULT_BACKEND_URL;
+    this.token = null;
+    this.devUser = null;
+    this.projectId = null;
+    this.isLiveConnected = null;
+    this.discoveredVia = null;
+  }
+
   // ---- transport -----------------------------------------------------------
 
   async _request(path, { method = 'GET', body = undefined, query = undefined, auth = true } = {}) {
@@ -100,16 +114,27 @@ class SentryAPIClient {
 
     let res;
     try {
-      res = await fetch(url.toString(), {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-        mode: 'cors',
-      });
+      // Hard timeout: some dead ports accept TCP and never answer (black
+      // hole). Without this, one bad stored URL freezes the whole console.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 10000);
+      try {
+        res = await fetch(url.toString(), {
+          method,
+          headers,
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+          mode: 'cors',
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
     } catch (err) {
       // fetch rejects on network failure and on CORS-blocked responses alike.
+      const timedOut = err && err.name === 'AbortError';
       throw new SentryApiError('NETWORK',
-        `backend unreachable at ${this.backendUrl} (${err.message || err})`, null, err);
+        timedOut ? `backend timed out at ${this.backendUrl} (10s — is it running?)`
+                 : `backend unreachable at ${this.backendUrl} (${err.message || err})`, null, err);
     }
     return this._deserialize(res);
   }
@@ -130,6 +155,47 @@ class SentryAPIClient {
   async checkHealth() {
     // Health is intentionally unauthenticated.
     return this._request('/v1/health', { auth: false });
+  }
+
+  /**
+   * Probe candidate backend URLs and adopt the first that answers.
+   * Port 8000 is the most contended desktop-docker port, so the console
+   * scans the common SENTRY ports instead of forcing a manual URL paste.
+   */
+  async discoverBackend(extraCandidates = []) {
+    const params = new URLSearchParams(window.location.search);
+    const override = params.get('backend');
+    const candidates = [...new Set([
+      ...(override ? [override] : []),
+      ...extraCandidates.filter(Boolean),
+      this.backendUrl,
+      ...[8077, 8000, 8081, 8001, 8090].map((p) => `http://127.0.0.1:${p}`),
+    ])].filter(Boolean);
+    for (const candidate of candidates) {
+      try {
+        const probe = new SentryAPIClient();
+        probe.backendUrl = candidate;
+        const health = await probe.checkHealth();
+        if (health && health.status === 'ok') {
+          this.discoveredVia = candidate === this.backendUrl ? 'stored' : 'scan';
+          this.setBackendUrl(candidate);
+          return { url: candidate, health };
+        }
+      } catch (err) { /* try next */ }
+    }
+    return null;
+  }
+
+  /** One-click local-dev session (DEV_AUTH backends only). */
+  async startDevSession() {
+    const session = await this._request('/v1/dev/session', {
+      method: 'POST', auth: false,
+    });
+    this.setDevUser(session.user_id || null);
+    if (session.project && session.project.id) {
+      this.setProjectId(session.project.id);
+    }
+    return session;
   }
 
   /** Probe the backend once and broadcast the result on 'sentry-connection'. */
@@ -166,19 +232,28 @@ class SentryAPIClient {
     projectId = this.projectId,
     aoiId = null,
     sceneIds = [],
-    model = 'custom_mf_sr',
+    model = 'bicubic_4x',
     mode = 'reconstruct_validate',
     referenceId = null,
     configId = null,
     validationProtocol = null,
     idempotencyKey = null,
+    samplingSteps = null,
+    uncertaintySamples = null,
+    uncertaintyEnabled = null,
+    frameMaxSelected = null,
+    frameChangeRiskMax = null,
     onProgress = null,
     pollMs = 2000,
+    signal = null,
   } = {}) {
     if (!projectId) {
       throw new SentryApiError('CONFIG',
         'no project configured: call SentryAPI.setProjectId("<project uuid>") first');
     }
+    const randomId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `ui-${Date.now().toString(36)}-${Math.floor(Math.random() * 2 ** 32).toString(36)}`;
     const job = await this.createJob({
       project_id: projectId,
       aoi_id: aoiId,
@@ -188,11 +263,15 @@ class SentryAPIClient {
       reference_id: referenceId,
       config_id: configId,
       validation_protocol: validationProtocol,
-      idempotency_key: idempotencyKey ||
-        `ui-${crypto.randomUUID()}`, // client-generated; safe to retry
+      sampling_steps: samplingSteps,
+      uncertainty_samples: uncertaintySamples,
+      uncertainty_enabled: uncertaintyEnabled,
+      frame_max_selected: frameMaxSelected,
+      frame_change_risk_max: frameChangeRiskMax,
+      idempotency_key: idempotencyKey || `ui-${randomId}`,
     });
     if (onProgress) onProgress(this._jobProgressView(job));
-    return this.watchJob(job.id, { onProgress, pollMs });
+    return this.watchJob(job.id, { onProgress, pollMs, signal });
   }
 
   /** POST /v1/jobs — returns 201 for a new job, 200 for an idempotent replay. */
@@ -289,15 +368,53 @@ class SentryAPIClient {
       { method: 'POST' });
   }
 
-  /** Fetch an artifact blob via a signed URL (e.g. sr.tif, report.json). */
-  async downloadArtifact(artifactId) {
-    const { url } = await this.signArtifact(artifactId);
-    const res = await fetch(url);
-    if (!res.ok) throw new SentryApiError('HTTP_' + res.status, 'artifact download failed');
+  artifactContentUrl(artifactId) {
+    return new URL(`/v1/artifacts/${encodeURIComponent(artifactId)}/content`,
+      this.backendUrl + (this.backendUrl.endsWith('/') ? '' : '/')).toString();
+  }
+
+  /** Fetch an artifact's bytes via authenticated content path (works local+storage). */
+  async downloadArtifact(artifactId, { signal = null } = {}) {
+    const headers = {};
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    else if (this.devUser) headers['X-Dev-User'] = this.devUser;
+    let res;
+    try {
+      res = await fetch(this.artifactContentUrl(artifactId),
+        { headers, mode: 'cors', signal });
+    } catch (err) {
+      if (err && err.name === 'AbortError') throw err;
+      throw new SentryApiError('NETWORK',
+        `artifact fetch failed (${err.message || err})`, null, err);
+    }
+    if (!res.ok) {
+      let data = null;
+      try { data = await res.json(); } catch (e) { /* non-JSON */ }
+      const code = data && data.error && data.error.code
+        ? data.error.code : `HTTP_${res.status}`;
+      const message = data && data.error && data.error.message
+        ? data.error.message : `artifact download failed (${res.status})`;
+      throw new SentryApiError(code, message, res.status);
+    }
     return res.blob();
   }
 
-  // ---- projects, scenes, models, copernicus (real) ----------------------------
+  async fetchJsonArtifact(artifactId) {
+    const blob = await this.downloadArtifact(artifactId);
+    if (blob.size > 64 * 1024 * 1024) {
+      throw new SentryApiError('DATA_CORRUPT',
+        `refusing to parse a ${(blob.size / 1048576).toFixed(1)} MB blob as JSON`);
+    }
+    const text = await blob.text();
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      throw new SentryApiError('DATA_CORRUPT',
+        'artifact is registered as JSON but did not parse', null, err);
+    }
+  }
+
+  // ---- projects, AOIs, scenes, models, copernicus, alerts (real) -------------
 
   /** GET /v1/projects — projects the authenticated user belongs to. */
   async listProjects() {
@@ -309,8 +426,15 @@ class SentryAPIClient {
     return this._request('/v1/projects', { method: 'POST', body: { name } });
   }
 
+  /** GET /v1/aois?project_id=… — AOIs registered on a project. */
+  async listAois(projectId = this.projectId) {
+    if (!projectId) throw new SentryApiError('CONFIG', 'no project configured');
+    return this._request('/v1/aois', { query: { project_id: projectId } });
+  }
+
   /** GET /v1/scenes/search — registered scenes intersecting an AOI. */
-  async searchScenes({ projectId, aoiId, start = null, end = null, maxCloud = null, limit = 50 }) {
+  async searchScenes({ projectId = this.projectId, aoiId, start = null, end = null, maxCloud = null, limit = 50 }) {
+    if (!projectId) throw new SentryApiError('CONFIG', 'no project configured');
     return this._request('/v1/scenes/search', {
       query: {
         project_id: projectId, aoi_id: aoiId, start, end, max_cloud: maxCloud, limit,
@@ -318,9 +442,30 @@ class SentryAPIClient {
     });
   }
 
-  /** GET /v1/models — approved model registry. */
+  /** GET /v1/models — approved model registry (public, capability cards included). */
   async listModels() {
-    return this._request('/v1/models');
+    return this._request('/v1/models', { auth: false });
+  }
+
+  /** GET /v1/models/status — runtime capability probe (public). */
+  async modelStatus() {
+    try {
+      return await this._request('/v1/models/status', { auth: false });
+    } catch (err) {
+      return null;
+    }
+  }
+
+  /** GET /v1/alerts — real backend detections (empty when none yet). */
+  async listAlerts({ projectId = this.projectId, status = null } = {}) {
+    if (!projectId) throw new SentryApiError('CONFIG', 'no project configured');
+    return this._request('/v1/alerts', { query: { project_id: projectId, status } });
+  }
+
+  /** POST /v1/alerts/{id}/status — triage a real alert. */
+  async updateRealAlertStatus(alertId, newStatus) {
+    return this._request(`/v1/alerts/${encodeURIComponent(alertId)}/status`,
+      { method: 'POST', body: { status: newStatus } });
   }
 
   /** POST /v1/copernicus/search — anonymous catalogue search over a registered AOI. */
@@ -352,9 +497,19 @@ class SentryAPIClient {
   // return deterministic local data. They NEVER touch the network, so they
   // cannot be mistaken for live results.
 
-  /** SIMULATED: no backend AOI listing endpoint; UI ships its own AOI set. */
+  /** AOIs: real project AOIs when connected, demo sectors otherwise. */
   async getAOIList() {
-    console.warn('[SentryAPI] getAOIList: simulated data (backend has no AOI list endpoint)');
+    if (this.projectId && (this.token || this.devUser)) {
+      try {
+        const rows = await this.listAois(this.projectId);
+        if (rows && rows.length) {
+          return rows.map((r) => ({
+            id: r.id, name: r.name, live: true,
+            center: r.bbox ? [(r.bbox[1] + r.bbox[3]) / 2, (r.bbox[0] + r.bbox[2]) / 2] : null,
+          }));
+        }
+      } catch (err) { /* fall through */ }
+    }
     return [
       { id: 'AOI_01', name: 'SECTOR TAWANG // LAC FORWARD AREA', center: [27.5861, 91.8594] },
       { id: 'AOI_02', name: 'SECTOR PANGONG // NORTH FINGER RIDGE', center: [33.7297, 78.5882] },
@@ -439,13 +594,27 @@ class SentryAPIClient {
   }
 
   /**
-   * SIMULATED: the backend has no alerts domain. Returns the console's demo
-   * dataset (from the original static console) so the Alerts tab, its
-   * filters, the pending-review counter and the dossier modal remain usable.
-   * Every row is demo content — never present it as a real detection.
+   * Alerts: try the real backend first, fall back to the clearly-labeled
+   * demo dataset so the Alerts tab always works. Real rows have `live: true`.
    */
   async fetchAlerts() {
-    console.warn('[SentryAPI] fetchAlerts: SIMULATED demo dataset (no alerts domain in backend)');
+    if (this.projectId && (this.token || this.devUser) && this.isLiveConnected !== false) {
+      try {
+        const rows = await this.listAlerts({});
+        if (rows && rows.length) {
+          return rows.map((r) => ({
+            id: r.id, live: true,
+            aoi: 'project', coord: (r.coord_lat != null && r.coord_lon != null)
+              ? `${r.coord_lat.toFixed(4)}° N, ${r.coord_lon.toFixed(4)}° E` : '—',
+            utm: '—', materialDelta: r.material_delta || r.title || '—',
+            classification: r.classification || 'HUMAN_REVIEW',
+            confidence: r.confidence, status: r.status,
+            notes: r.notes || '', timestamp: r.created_at, provenanceId: r.job_id || '',
+          }));
+        }
+      } catch (err) { /* fall through to demo data */ }
+    }
+    console.warn('[SentryAPI] fetchAlerts: demo dataset (no live alerts yet)');
     return [
       {
         id: 'ALT-2026-0391', aoi: 'AOI_01',
@@ -514,9 +683,14 @@ class SentryAPIClient {
     ];
   }
 
-  /** SIMULATED: no alert triage endpoint exists. */
+  /** Triage: real endpoint when live, simulated ack otherwise. */
   async updateAlertStatus(alertId, newStatus, overrideNotes) {
-    console.warn('[SentryAPI] updateAlertStatus: simulated (no alerts domain in backend)');
+    if (alertId && !String(alertId).startsWith('ALT-')) {
+      try {
+        return await this.updateRealAlertStatus(alertId, newStatus);
+      } catch (err) { /* fall through */ }
+    }
+    console.warn('[SentryAPI] updateAlertStatus: demo ack (no live alert)');
     return { simulated: true, alertId, newStatus, notes: overrideNotes || null,
       loggedAt: new Date().toISOString() };
   }

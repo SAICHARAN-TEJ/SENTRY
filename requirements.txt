@@ -1,12 +1,17 @@
-fastapi
-uvicorn[standard]
-pydantic
-pydantic-settings
-httpx
-psycopg[binary,pool]
-rasterio
-shapely
-pyproj
-numpy
-scikit-image
-pytest
+fastapi==0.129.2
+uvicorn[standard]==0.41.0
+pydantic==2.12.5
+pydantic-settings==2.13.1
+httpx==0.28.1
+psycopg[binary,pool]==3.3.5
+psycopg-pool==3.3.1
+rasterio==1.5.1
+shapely==2.1.2
+pyproj==3.8.0
+numpy==2.4.2
+scikit-image==0.26.0
+Pillow==11.3.0
+pytest==9.0.2
+# Optional (not installed by default):
+# torch -- CUDA/CPU build per platform; required only for opensr_ldsrs2
+# requests -- legacy fetch helper; httpx/urllib cover current scripts

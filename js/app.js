@@ -29,6 +29,7 @@
   setTimeout(() => {
     if (!threeReady) {
       console.warn('Three.js module load timeout — initializing without 3D');
+      window.__threeFailed = true; // 3D toggle explains this instead of a black panel
       threeReady = true;
       tryInit();
     }
@@ -148,6 +149,15 @@
         connChip.textContent = 'Backend: live';
         connChip.className = 'chip live';
         connChip.title = `db=${d.health?.db} storage=${d.health?.storage} protocol=${d.health?.protocol_version}`;
+        // Zero-click identity: a dev backend with no stored identity mints a
+        // demo session by itself (opt out in Connect… → Advanced).
+        if (d.health?.dev_auth && !api.isLikelyConfigured()
+            && localStorage.getItem('SENTRY_AUTO_DEMO') !== '0'
+            && !window.__autoDemoDone) {
+          window.__autoDemoDone = true;
+          toast('Backend allows demo access — starting your session…', 'ok', 3000);
+          startDemoSession().catch(() => { /* status already rendered */ });
+        }
       } else {
         connChip.textContent = 'Simulator (no backend)';
         connChip.className = 'chip alert';
@@ -155,6 +165,7 @@
       }
     });
     api.connect();
+    // First flow paint happens at the end of init (after stepEls exists).
 
     // ═══════════════════════════════════════════════════════════════
     // 5. SENTINEL SIMULATOR
@@ -270,12 +281,28 @@
       const hudL = document.querySelector('.hud-top-left');
       const hudR = document.querySelector('.map-hud-overlay.hud-top-right:not(.hud-3d)');
       const hud3d = document.querySelector('.hud-3d');
+      const terrainControls = document.getElementById('terrainControls');
+      const terrainStatus = document.getElementById('terrainStatus');
       const is3D = view === '3D';
 
       if (is3D) {
         // 3D Tactical DEM: dock the WebGL terrain into the map panel.
+        if (terrainControls) terrainControls.hidden = false;
+        if (container) container.classList.add('terrain-poster'); // photo poster until textures arrive
         if (sentryEnv) {
           sentryEnv.dockIn(container);
+          const info = sentryEnv.terrainInfo ? sentryEnv.terrainInfo() : null;
+          if (terrainStatus) {
+            terrainStatus.textContent = !info ? 'Starting 3D engine…'
+              : info.ready ? 'Himalayan terrain ready — drag to orbit, scroll to zoom.'
+              : 'Loading Himalayan terrain textures…';
+          }
+          if (info && info.ready && container) container.classList.remove('terrain-poster');
+        } else if (terrainStatus) {
+          terrainStatus.textContent = window.__threeFailed
+            ? '3D engine offline — three.js CDN unreachable. Showing terrain poster; 2D modes fully work.'
+            : 'Starting 3D engine…';
+          if (window.__threeFailed) toast('3D needs the three.js CDN (network). 2D comparison still works.', 'warn', 5000);
         }
         if (container) container.classList.add('mode-3d-active');
         if (stage) stage.style.visibility = 'hidden';
@@ -287,7 +314,8 @@
       } else {
         // Leaving 3D: restore the background globe and the SRM canvases.
         if (sentryEnv) sentryEnv.undock();
-        if (container) container.classList.remove('mode-3d-active');
+        if (container) container.classList.remove('mode-3d-active', 'terrain-poster');
+        if (terrainControls) terrainControls.hidden = true;
         if (stage) stage.style.visibility = '';
         if (hud3d) hud3d.hidden = true;
 
@@ -327,6 +355,50 @@
 
     viewToggleBtns.forEach(btn => {
       btn.addEventListener('click', () => setView(btn.getAttribute('data-view')));
+    });
+
+    // ── 3D terrain status + operator controls ──
+    window.addEventListener('sentry-terrain', (e) => {
+      const d = e.detail || {};
+      const status = document.getElementById('terrainStatus');
+      const stage = document.getElementById('srmStage');
+      const container = stage ? stage.parentElement : null;
+      if (d.phase === 'ready') {
+        if (status) status.textContent = 'Himalayan terrain ready — drag to orbit, scroll to zoom.';
+        if (container) container.classList.remove('terrain-poster');
+      } else if (d.phase === 'degraded') {
+        const missing = Object.entries(d.textures || {}).filter(([, v]) => v !== 'ready').map(([k]) => k).join(', ');
+        if (status) status.textContent = `Terrain degraded (missing: ${missing}) — elevation fallback active.`;
+        if (container) container.classList.remove('terrain-poster');
+        toast(`Terrain textures missing (${missing}) — elevation fallback active.`, 'warn', 5000);
+      }
+    });
+
+    document.getElementById('terrainExagg')?.addEventListener('input', (e) => {
+      sentryEnv?.setExaggeration?.(e.target.value);
+    });
+    document.getElementById('terrainContours')?.addEventListener('change', (e) => {
+      sentryEnv?.setContoursVisible?.(e.target.checked);
+    });
+    document.getElementById('terrainOrbit')?.addEventListener('change', (e) => {
+      sentryEnv?.setAutoOrbit?.(e.target.checked);
+    });
+    document.getElementById('terrainMaterial')?.addEventListener('change', (e) => {
+      const wantPhoto = e.target.checked;
+      const ok = sentryEnv?.setPhotoMaterial?.(wantPhoto);
+      if (wantPhoto === false && ok === false) {
+        e.target.checked = true;
+        toast('Elevation colors need the heightmap — still loading.', 'warn', 3500);
+      }
+    });
+    document.getElementById('terrainFlyBtn')?.addEventListener('click', () => {
+      const aoiId = document.getElementById('aoiSelect')?.value;
+      if (sentryEnv?.flyToSector && aoiId) {
+        sentryEnv.flyToSector(aoiId);
+        toast(`Flying to ${aoiId} sector…`, 'ok', 2500);
+      } else {
+        toast('3D engine not ready yet.', 'warn', 3000);
+      }
     });
 
     // ═══════════════════════════════════════════════════════════════
@@ -539,18 +611,46 @@
     });
 
     // ═════════════════════════════════════════════════════════════
-    // 11b. CONNECT DIALOG — operator identity & project scope in-app
+    // 11b. CONNECT DIALOG — what it does, in plain words:
+    //   "Connect" tells the console WHERE the backend API lives and WHO you
+    //   are (operator identity + project scope). Both are saved in this
+    //   browser only (localStorage). Live pipeline jobs need both; without
+    //   them the console runs on built-in simulator demo data.
     // ═════════════════════════════════════════════════════════════
     const connectModal = document.getElementById('connectModal');
+    const connectStatus = document.getElementById('connectStatus');
     let connectLastFocused = null;
+
+    function renderConnectStatus(note) {
+      if (!connectStatus) return;
+      const live = api.isLiveConnected === true;
+      const rows = [
+        `<div>Backend: <span class="${live ? 'ok' : 'bad'}">${live ? '● LIVE' : '○ unreachable'}</span> ` +
+        `<span>${api.backendUrl || '(default)'}</span></div>`,
+        `<div>Identity: ${api.devUser
+          ? `<span class="ok">demo user ${api.devUser.slice(0, 8)}…</span>`
+          : api.token ? '<span class="ok">API token set</span>'
+          : '<span class="warn">none — simulator only</span>'}</div>`,
+        `<div>Project: ${api.projectId
+          ? `<span class="ok">${api.projectId.slice(0, 8)}…</span>`
+          : '<span class="warn">none — jobs need one</span>'}</div>`,
+      ];
+      if (note) rows.push(`<div>${note}</div>`);
+      connectStatus.innerHTML = rows.join('');
+    }
 
     function openConnect() {
       if (!connectModal) return;
       connectLastFocused = document.activeElement;
+      const urlInput = document.getElementById('connectUrlInput');
       const userInput = document.getElementById('connectUserInput');
       const projectInput = document.getElementById('connectProjectInput');
+      if (urlInput) urlInput.value = api.backendUrl || '';
       if (userInput) userInput.value = api.devUser || '';
       if (projectInput) projectInput.value = api.projectId || '';
+      const autoBox = document.getElementById('connectAutoDemo');
+      if (autoBox) autoBox.checked = localStorage.getItem('SENTRY_AUTO_DEMO') !== '0';
+      renderConnectStatus();
       connectModal.classList.add('open');
       userInput?.focus();
     }
@@ -564,14 +664,18 @@
     }
 
     function saveConnect() {
+      const urlInput = document.getElementById('connectUrlInput');
       const userInput = document.getElementById('connectUserInput');
       const projectInput = document.getElementById('connectProjectInput');
+      const url = (urlInput?.value || '').trim();
       const user = (userInput?.value || '').trim();
       const project = (projectInput?.value || '').trim();
+      if (url) api.setBackendUrl(url);
       api.setDevUser(user || null);
       api.setProjectId(project || null);
       closeConnect();
-      api.connect(); // re-probe; the badge and guards read the new state
+      api.connect().then(() => { renderConnectStatus(); updateRunFlow(); });
+      updateRunFlow();
       toast(user
         ? `Operator identity saved${project ? ' — project scope set' : ''}.`
         : 'Identity cleared — running unauthenticated.', 'ok', 4000);
@@ -580,12 +684,82 @@
     document.getElementById('connectBtn')?.addEventListener('click', openConnect);
     document.getElementById('connectCloseBtn')?.addEventListener('click', closeConnect);
     document.getElementById('connectSaveBtn')?.addEventListener('click', saveConnect);
+    document.getElementById('connectResetBtn')?.addEventListener('click', () => {
+      api.resetSaved();
+      localStorage.setItem('SENTRY_AUTO_DEMO', '1');
+      toast('Saved connection forgotten — reloading fresh.', 'ok', 3000);
+      setTimeout(() => window.location.reload(), 600);
+    });
+    const autoDemoBox = document.getElementById('connectAutoDemo');
+    if (autoDemoBox) {
+      autoDemoBox.checked = localStorage.getItem('SENTRY_AUTO_DEMO') !== '0';
+      autoDemoBox.addEventListener('change', () => {
+        localStorage.setItem('SENTRY_AUTO_DEMO', autoDemoBox.checked ? '1' : '0');
+      });
+    }
     document.getElementById('connectClearBtn')?.addEventListener('click', () => {
       const userInput = document.getElementById('connectUserInput');
       const projectInput = document.getElementById('connectProjectInput');
       if (userInput) userInput.value = '';
       if (projectInput) projectInput.value = '';
       userInput?.focus();
+    });
+
+    // "Find backend automatically": scan localhost ports for a live /v1 API.
+    document.getElementById('connectScanBtn')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = 'Scanning…';
+      renderConnectStatus('<span class="warn">Scanning localhost ports…</span>');
+      try {
+        const found = await api.discoverBackend();
+        await api.connect();
+        if (found) {
+          renderConnectStatus(`<span class="ok">Found backend at ${found.url} (${api.discoveredVia}).</span>`);
+          toast(`Backend found at ${found.url}`, 'ok', 4000);
+        } else {
+          renderConnectStatus('<span class="bad">No backend answered. Start it: `python scripts/serve.py`.</span>');
+          toast('No backend found — start it with `python scripts/serve.py`.', 'warn', 6000);
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+        updateRunFlow();
+      }
+    });
+
+    // Shared one-click demo flow (dialog button + run-bar button use this).
+    async function startDemoSession() {
+      setRunStatus('Starting demo session…');
+      try {
+        await api.discoverBackend();
+        const sess = await api.startDevSession();
+        toast(`Demo session ready — project ${(sess.project?.id || '').slice(0, 8)}`, 'ok', 4000);
+        await api.connect();
+        await refreshBackendPickers();
+        await loadAlerts();
+        renderConnectStatus('<span class="ok">Demo session active.</span>');
+        setRunStatus('Demo session ready — pick a scene + model, then Run.');
+      } catch (err) {
+        const msg = `${err.code || ''} ${err.message || err}`.trim();
+        setRunStatus(`Demo session failed: ${msg}`);
+        renderConnectStatus(`<span class="bad">Demo session failed: ${msg}</span>`);
+        toast(`Demo session failed: ${err.message || err}`, 'warn', 6000);
+        throw err;
+      } finally {
+        updateRunFlow();
+      }
+    }
+
+    document.getElementById('connectDemoBtn')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await startDemoSession();
+        closeConnect();
+      } catch (err) { /* status already rendered */ }
+      finally { btn.disabled = false; }
     });
     connectModal?.addEventListener('click', (e) => { if (e.target === connectModal) closeConnect(); });
     connectModal?.addEventListener('keydown', (e) => {
@@ -594,18 +768,276 @@
     });
 
     // ═══════════════════════════════════════════════════════════════
+    // 11c. BACKEND RUN BAR — model/mode/scene/advanced pickers + real previews
+    // ═══════════════════════════════════════════════════════════════
+    const runStatusLine = document.getElementById('runStatusLine');
+    const setRunStatus = (msg) => { if (runStatusLine) runStatusLine.textContent = msg; };
+
+    function drawBlobToCanvas(blob, canvasId) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas || !blob) return Promise.resolve();
+      return new Promise((resolve) => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          try {
+            canvas.width = img.naturalWidth || canvas.width;
+            canvas.height = img.naturalHeight || canvas.height;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+          } finally {
+            URL.revokeObjectURL(url);
+            resolve();
+          }
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+        img.src = url;
+      });
+    }
+
+    async function refreshBackendPickers() {
+      const sceneSel = document.getElementById('sceneSelect');
+      const modelSel = document.getElementById('modelSelect');
+      // Models: mark unavailable ones from /v1/models/status (never fabricate READY).
+      try {
+        const st = await api.modelStatus();
+        if (st && st.registry && modelSel) {
+          [...modelSel.options].forEach((opt) => {
+            const card = st.registry[opt.value];
+            if (!card) return;
+            const runnable = !card.visual_only && !(card.requires === 'torch' && st.ready === false);
+            opt.disabled = !runnable;
+            if (card.visual_only) opt.textContent = `${opt.value} — visual only (blocked)`;
+            else if (!runnable) opt.textContent = `${opt.value} — unavailable (missing deps)`;
+          });
+        }
+      } catch (e) { /* picker keeps static options */ }
+      // Scenes: list AOIs then scenes for the selected AOI.
+      if (!api.projectId || !api.isLikelyConfigured()) {
+        if (sceneSel) sceneSel.innerHTML = '<option value="">— connect to list scenes —</option>';
+        return;
+      }
+      try {
+        const aois = await api.listAois(api.projectId);
+        const aoiSel = document.getElementById('aoiSelect');
+        if (aoiSel && aois.length) {
+          const cur = aoiSel.value;
+          aoiSel.innerHTML = '';
+          aois.forEach((a) => {
+            const o = document.createElement('option');
+            o.value = a.id;
+            o.textContent = a.name || a.id.slice(0, 8);
+            aoiSel.appendChild(o);
+          });
+          if ([...aoiSel.options].some((o) => o.value === cur)) aoiSel.value = cur;
+        }
+        const aoiId = aoiSel?.value
+          || (aois[0] && aois[0].id) || null;
+        if (!aoiId) {
+          if (sceneSel) sceneSel.innerHTML = '<option value="">— no AOIs in project —</option>';
+          return;
+        }
+        const scenes = await api.searchScenes({ aoiId });
+        if (sceneSel) {
+          sceneSel.innerHTML = scenes.length
+            ? '' : '<option value="">— no staged scenes for AOI —</option>';
+          scenes.forEach((s) => {
+            const o = document.createElement('option');
+            o.value = s.id;
+            o.textContent = `${s.provider_product_id || s.id} (${s.cloud_pct ?? '?'}% cloud)`;
+            sceneSel.appendChild(o);
+          });
+        }
+        setRunStatus(`Connected — ${aois.length} AOI(s), ${scenes.length} scene(s). Pick a model and run.`);
+      } catch (err) {
+        setRunStatus(`Picker refresh failed: ${err.code || ''} ${err.message || err}`.trim());
+      }
+      updateRunFlow();
+    }
+
+    document.getElementById('demoSessionBtn')?.addEventListener('click', () => {
+      startDemoSession().catch(() => { /* status + toast already handled */ });
+    });
+
+    // Single run entry point: both Run buttons call submitRun().
+    // Offline (or unreachable backend) → honest simulator demo with stage
+    // animation; online + identity + scene → real backend job with previews.
+    let lastRunOk = false;
+
+    async function runSimDemo(btn) {
+      setRunStatus('No backend — running the built-in simulator demo (no job created).');
+      const stageLabels = [
+        'Sim Stage 0: Pre-Processing', 'Sim Stage 1: SAM Detection', 'Sim Stage 2: FCLS Unmixing',
+        'Sim Stage 3: MLP Allocation', 'Sim Stage 3B: Atkinson Refine', 'Sim Stage 4: Validation'
+      ];
+      for (let i = 0; i < STAGE_KEYS.length; i++) {
+        if (statusChip) {
+          statusChip.textContent = stageLabels[i];
+          statusChip.className = 'chip warning is-pulsing';
+        }
+        highlightTraceStage(STAGE_KEYS[i]);
+        await new Promise(r => setTimeout(r, reducedMotion ? 120 : 550));
+      }
+      if (statusChip) {
+        statusChip.textContent = 'Simulator: complete (no backend job)';
+        statusChip.className = 'chip live';
+      }
+      toast('Simulated run — connect a backend for real pipeline execution', 'warn', 4500);
+    }
+
+    async function submitRun() {
+      const btn = document.getElementById('runJobBtn');
+      if (btn) btn.disabled = true;
+      const release = () => { if (btn) btn.disabled = false; updateRunFlow(); };
+      if (!api.isLiveConnected) {
+        try { await api.discoverBackend(); await api.connect(); } catch (e) { /* fall through */ }
+      }
+      if (!api.isLiveConnected) {
+        await runSimDemo(btn); // honest offline path, not a dead end
+        release();
+        return;
+      }
+      if (!api.isLikelyConfigured() || !api.projectId) {
+        toast('No operator identity — click Demo Session first.', 'warn', 6000);
+        setRunStatus('No operator identity — click Demo Session first.');
+        release();
+        return;
+      }
+      const model = document.getElementById('modelSelect')?.value || 'bicubic_4x';
+      const mode = document.getElementById('modeSelect')?.value || 'reconstruct_validate';
+      const sceneId = document.getElementById('sceneSelect')?.value || null;
+      const aoiId = document.getElementById('aoiSelect')?.value || null;
+      const samplingSteps = parseInt(document.getElementById('samplingStepsInput')?.value, 10) || null;
+      const frameCap = parseInt(document.getElementById('frameCapInput')?.value, 10) || null;
+      if (!sceneId && mode !== 'benchmark') {
+        toast('Pick a staged scene first (or run benchmark mode).', 'warn', 5000);
+        release();
+        return;
+      }
+      setRunStatus(`Submitting ${model} (${mode})…`);
+      try {
+        const job = await api.runPipeline({
+          aoiId: aoiId && !aoiId.startsWith('AOI_') ? aoiId : null,
+          sceneIds: sceneId ? [sceneId] : [],
+          model, mode,
+          samplingSteps, frameMaxSelected: frameCap,
+          onProgress: (p) => setRunStatus(`Job ${p.jobId.slice(0, 8)} — ${p.currentStep || p.status} (${Math.round((p.progress || 0) * 100)}%)`),
+        });
+        setRunStatus(`Job ${job.id.slice(0, 8)} ${job.status} — ${job.artifacts.length} artifact(s). Loading previews…`);
+        const byType = {};
+        (job.artifacts || []).forEach((a) => { byType[a.artifact_type] = a; });
+        // Picture output: real job PNGs only — no simulated fallback image.
+        if (byType.preview_observation) {
+          try { await drawBlobToCanvas(await api.downloadArtifact(byType.preview_observation.id), 'canvasCoarse'); } catch (e) { /* keep sim */ }
+        }
+        const fineArt = byType.preview_rgb || byType.preview_false_color;
+        if (fineArt) {
+          try { await drawBlobToCanvas(await api.downloadArtifact(fineArt.id), 'canvasFine'); } catch (e) { /* keep sim */ }
+          setView('SPLIT');
+        }
+        // Deductions: validation summary into Trace + Metrics caption.
+        if (job.validation_id) {
+          try {
+            const v = await api.getValidation(job.validation_id);
+            if (traceTitle) traceTitle.textContent = `Job ${job.id.slice(0, 8)} — ${v.overall_status || v.status} (score ${v.score ?? '—'})`;
+            if (traceJson) traceJson.textContent = JSON.stringify(v, null, 2);
+            if (traceHash) traceHash.textContent = `Validation: ${v.overall_status || v.status}`;
+            setRunStatus(`Done — validation ${v.overall_status} (score ${v.score ?? '—'}). See Trace for evidence.`);
+          } catch (e) { setRunStatus(`Done — job ${job.status}. Validation fetch failed.`); }
+          await loadAlerts();
+        } else {
+          setRunStatus(`Done — job ${job.status} (no validation for mode ${mode}).`);
+        }
+        toast(`Job ${job.status} — previews are real job artifacts`, 'ok', 5000);
+        lastRunOk = job.status === 'COMPLETED';
+      } catch (err) {
+        lastRunOk = false;
+        setRunStatus(`Job failed: ${err.code || ''} ${err.message || err}`.trim());
+        toast(`Job failed: ${err.message || err}`, 'warn', 7000);
+      } finally {
+        release();
+      }
+    }
+
+    document.getElementById('runJobBtn')?.addEventListener('click', () => {
+      submitRun().catch((e) => console.warn('submitRun failed:', e));
+    });
+
+    // ── Guided 4-step flow: Backend → Identity → Scene+Model → Run ──
+    const stepEls = {};
+    document.querySelectorAll('#runSteps .run-step').forEach((el) => {
+      stepEls[el.dataset.step] = el;
+    });
+
+    function flowState() {
+      const live = api.isLiveConnected === true;
+      const identity = Boolean((api.token || api.devUser) && api.projectId);
+      const sceneSel = document.getElementById('sceneSelect');
+      const modelSel = document.getElementById('modelSelect');
+      const sceneReady = Boolean((sceneSel && sceneSel.value) || !live);
+      const modelReady = Boolean(modelSel && modelSel.value);
+      return { live, identity, sceneReady: sceneReady && modelReady, ran: lastRunOk };
+    }
+
+    function setStep(name, state) { // state: done | current | blocked | todo
+      const el = stepEls[name];
+      if (!el) return;
+      el.classList.remove('done', 'current', 'blocked');
+      if (state === 'done') {
+        el.classList.add('done');
+        el.querySelector('.step-dot').textContent = '✓';
+      } else {
+        const n = { backend: '1', identity: '2', scene: '3', run: '4' }[name] || '•';
+        el.querySelector('.step-dot').textContent = n;
+        if (state === 'current') el.classList.add('current');
+        else if (state === 'blocked') el.classList.add('blocked');
+      }
+    }
+
+    function updateRunFlow() {
+      const s = flowState();
+      setStep('backend', s.live ? 'done' : 'current');
+      setStep('identity', !s.live ? 'blocked' : s.identity ? 'done' : 'current');
+      setStep('scene', !s.live ? 'done' : !s.identity ? 'blocked' : s.sceneReady ? 'done' : 'current');
+      setStep('run', s.ran ? 'done' : s.sceneReady && (s.live ? s.identity : true) ? 'current' : 'blocked');
+      // Honest hint under the pickers: what WILL happen when you press Run.
+      if (!s.live) setRunStatus('Simulator mode — Run plays the built-in demo. Connect a backend for live jobs.');
+      else if (!s.identity) setRunStatus('Backend live — next: get an identity (Demo Session or Connect…).');
+      else if (!s.sceneReady) setRunStatus('Identity ready — next: pick a staged scene + model, then Run.');
+      else if (!s.ran) setRunStatus('Ready — press Run to submit a live backend job.');
+    }
+
+    document.querySelector('#runSteps .run-step[data-step="backend"]')?.addEventListener('click', openConnect);
+    document.querySelector('#runSteps .run-step[data-step="identity"]')?.addEventListener('click', () => {
+      if (api.isLiveConnected) startDemoSession().catch(() => {});
+      else { openConnect(); toast('Connect a backend first, then start the demo session.', 'warn', 4000); }
+    });
+    document.querySelector('#runSteps .run-step[data-step="scene"]')?.addEventListener('click', () => {
+      switchTab('tabMap');
+      document.getElementById('sceneSelect')?.focus();
+    });
+    document.querySelector('#runSteps .run-step[data-step="run"]')?.addEventListener('click', () => {
+      submitRun().catch((e) => console.warn('submitRun failed:', e));
+    });
+
+    window.addEventListener('sentry-connection', () => { refreshBackendPickers(); updateRunFlow(); });
+
+    // ═══════════════════════════════════════════════════════════════
     // 12. Q&A DRAWER
     // ═══════════════════════════════════════════════════════════════
     const qaDrawer = document.getElementById('qaDrawer');
     let qaLastFocused = null;
 
     document.getElementById('qaDrawerBtn')?.addEventListener('click', () => {
+      if (!qaDrawer) return;
       qaLastFocused = document.activeElement;
       qaDrawer.classList.add('open');
       document.getElementById('closeQaDrawerBtn')?.focus();
     });
 
     function closeQaDrawer() {
+      if (!qaDrawer) return;
       qaDrawer.classList.remove('open');
       if (qaLastFocused && qaDrawer.contains(document.activeElement)) qaLastFocused.focus();
     }
@@ -624,7 +1056,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (modal.classList.contains('open')) { closeModal(); return; }
-        if (qaDrawer.classList.contains('open')) { closeQaDrawer(); return; }
+        if (qaDrawer?.classList.contains('open')) { closeQaDrawer(); return; }
       }
       if (inTextInput(document.activeElement) || e.ctrlKey || e.metaKey || e.altKey) return;
 
@@ -671,97 +1103,10 @@
     }
 
     if (runBtn) {
-      runBtn.addEventListener('click', async () => {
-        runBtn.disabled = true;
-        runBtn.textContent = 'Running…';
-
-        // LIVE: submit a real backend job and poll it to a terminal state.
-        if (api.isLiveConnected) {
-          if (!api.isLikelyConfigured()) {
-            toast('Backend reachable, but no operator identity is configured. ' +
-                  'Click “Connect…” (top right) and paste your user UUID — see /docs ' +
-                  'on the backend to create one. The console remembers it.', 'warn', 9000);
-            runBtn.disabled = false;
-            openConnect();
-            return;
-          }
-          if (!api.projectId) {
-            toast('No project selected. Create one via POST /v1/projects (see /docs), ' +
-                  'then click “Connect…” and paste its UUID.', 'warn', 9000);
-            runBtn.disabled = false;
-            openConnect();
-            return;
-          }
-          let lastStage = null;
-          const stepLabels = {
-            preprocess: 'Job: pre-processing',
-            reconstruct: 'Job: reconstructing',
-            uncertainty: 'Job: uncertainty',
-            validate: 'Job: validating',
-            report: 'Job: reporting',
-          };
-          const setStage = (key, label) => {
-            if (!key || key === lastStage) return;
-            lastStage = key;
-            if (statusChip) {
-              statusChip.textContent = label;
-              statusChip.className = 'chip warning is-pulsing';
-            }
-            highlightTraceStage(key);
-          };
-          try {
-            const job = await api.runPipeline({
-              onProgress: (p) => setStage(p.stageKey, stepLabels[p.currentStep] || `Job: ${p.status}`),
-            });
-            if (statusChip) {
-              statusChip.textContent = `Job: ${job.status}`;
-              statusChip.className = 'chip live';
-            }
-            if (traceTitle) traceTitle.textContent = `Job ${job.id.slice(0, 8)}`;
-            if (traceJson) {
-              traceJson.textContent = JSON.stringify({
-                job_id: job.id, status: job.status, steps: job.steps,
-                artifacts: job.artifacts, validation_id: job.validation_id,
-              }, null, 2);
-            }
-            if (traceHash) {
-              traceHash.textContent = `Validation: ${job.validation_id || 'none'}`;
-            }
-            toast(`Job ${job.id.slice(0, 8)} completed — ${job.artifacts.length} artifact(s) registered`);
-          } catch (err) {
-            if (statusChip) {
-              statusChip.textContent = 'Job: failed';
-              statusChip.className = 'chip alert';
-            }
-            toast(`Job failed: ${err.code || ''} ${err.message || err}`.trim(), 'warn', 6500);
-          } finally {
-            runBtn.disabled = false;
-            runBtn.textContent = 'Run Pipeline';
-          }
-          return;
-        }
-
-        // SIMULATED: demo timings only — no backend job is created.
-        if (statusChip) statusChip.textContent = 'Simulator run (demo only)';
-        const stageLabels = [
-          'Sim Stage 0: Pre-Processing', 'Sim Stage 1: SAM Detection', 'Sim Stage 2: FCLS Unmixing',
-          'Sim Stage 3: MLP Allocation', 'Sim Stage 3B: Atkinson Refine', 'Sim Stage 4: Validation'
-        ];
-        for (let i = 0; i < STAGE_KEYS.length; i++) {
-          if (statusChip) {
-            statusChip.textContent = stageLabels[i];
-            statusChip.className = 'chip warning is-pulsing';
-          }
-          highlightTraceStage(STAGE_KEYS[i]);
-          await new Promise(r => setTimeout(r, reducedMotion ? 120 : 550));
-        }
-        if (statusChip) {
-          statusChip.textContent = 'Simulator: complete (no backend job)';
-          statusChip.className = 'chip live';
-        }
-        runBtn.disabled = false;
-        runBtn.textContent = 'Run Pipeline';
-        toast('Simulated run — connect a backend for real pipeline execution', 'warn', 4500);
+      // Header button = same flow as the run bar: jump to the Map tab and run.
+      runBtn.addEventListener('click', () => {
+        switchTab('tabMap');
+        submitRun().catch((e) => console.warn('submitRun failed:', e));
       });
     }
 
@@ -915,6 +1260,7 @@
       const tileEl = document.getElementById('statusTile');
       if (tileEl && meta) tileEl.textContent = `Tile: ${meta.tile}`;
       loadAlerts();
+      refreshBackendPickers();
       toast(`AOI switched — ${meta ? meta.tile : aoiId}`, 'ok', 2600);
     });
 
@@ -962,7 +1308,6 @@ ${placemarks}
     });
 
     document.getElementById('downloadKmlMockBtn')?.addEventListener('click', () => {
-      const title = document.getElementById('dossierTitle')?.textContent || 'dossier';
       downloadBlob(buildKml(allAlerts.slice(0, 1)), 'sentry-evidence.kml', 'application/vnd.google-earth.kml+xml');
       toast('Evidence KML exported');
     });
@@ -975,5 +1320,8 @@ ${placemarks}
       toast('Opening print dialog — save as PDF', 'ok', 2600);
       setTimeout(() => window.print(), 350);
     });
+
+    // First paint of the guided flow (all wiring above is in place).
+    updateRunFlow();
   }
 })();

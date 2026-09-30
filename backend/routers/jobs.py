@@ -41,6 +41,18 @@ STEP_SETS = {
 TERMINAL = ("COMPLETED", "FAILED", "CANCELLED")
 
 
+def _advanced_knobs(body: JobCreate) -> dict:
+    """Per-job overrides for sampling/uncertainty/frame selection (None = default)."""
+    knobs = {
+        "sampling_steps": body.sampling_steps,
+        "uncertainty_samples": body.uncertainty_samples,
+        "uncertainty_enabled": body.uncertainty_enabled,
+        "frame_max_selected": body.frame_max_selected,
+        "frame_change_risk_max": body.frame_change_risk_max,
+    }
+    return {k: v for k, v in knobs.items() if v is not None}
+
+
 def _request_fingerprint(body: JobCreate, job_type: str, config_hash: str | None,
                          model: dict, protocol: str) -> str:
     """Hash all output-affecting request identity fields canonically."""
@@ -56,6 +68,7 @@ def _request_fingerprint(body: JobCreate, job_type: str, config_hash: str | None
         "config_id": body.config_id,
         "config_hash": config_hash,
         "validation_protocol": protocol,
+        "advanced_knobs": _advanced_knobs(body),
     }
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -214,9 +227,15 @@ async def create_job(body: JobCreate, user: dict = Depends(get_current_user)) ->
                 tx.execute(
                     "insert into job_inputs (job_id, role, object_key_snapshot) values (%s, 'aoi', %s)",
                     (created_id, body.aoi_id))
+            knobs = _advanced_knobs(body)
+            if knobs:
+                tx.execute(
+                    "insert into job_inputs (job_id, role, object_key_snapshot) values (%s, 'advanced_knobs', %s)",
+                    (created_id, json.dumps(knobs, sort_keys=True)))
             _provenance(tx, body.project_id, created_id, "job_submitted", user["id"], {
                 "mode": body.mode, "model": body.model,
                 "input_fingerprint": fingerprint, "protocol_version": protocol,
+                "advanced_knobs": knobs,
             })
 
     if active_existing is not None:

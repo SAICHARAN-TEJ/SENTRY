@@ -145,9 +145,29 @@ class SentryEnvironment {
     const terrainSize = 160;
     const segments = 220;
 
-    const diffuse = loader.load('/assets/terrain_diffuse.jpg');
-    const height = loader.load('/assets/terrain_height.jpg', (t) => this._buildHypsometry(t));
-    const normal = loader.load('/assets/terrain_normal.jpg');
+    // Track per-texture load state so the console can show honest status
+    // ("loading terrain…" → "terrain ready" / "offline fallback") instead of
+    // a silent black plane when a texture is missing.
+    this.terrainState = { diffuse: 'loading', height: 'loading', normal: 'loading' };
+    const note = (name, state) => {
+      this.terrainState[name] = state;
+      const vals = Object.values(this.terrainState);
+      const phase = vals.every((v) => v === 'ready') ? 'ready'
+        : vals.some((v) => v === 'failed') && !vals.includes('loading') ? 'degraded'
+        : 'loading';
+      window.dispatchEvent(new CustomEvent('sentry-terrain', {
+        detail: { phase, textures: { ...this.terrainState } }
+      }));
+    };
+
+    const diffuse = loader.load('assets/terrain_diffuse.jpg',
+      () => note('diffuse', 'ready'), undefined,
+      () => { note('diffuse', 'failed'); this._diffuseFailed = true; this._applyDiffuseFallback(); });
+    const height = loader.load('assets/terrain_height.jpg', (t) => { this._buildHypsometry(t); note('height', 'ready'); },
+      undefined, () => note('height', 'failed'));
+    const normal = loader.load('assets/terrain_normal.jpg',
+      () => note('normal', 'ready'), undefined,
+      () => note('normal', 'failed'));
 
     diffuse.colorSpace = THREE.SRGBColorSpace;
     diffuse.wrapS = diffuse.wrapT = THREE.ClampToEdgeWrapping;
@@ -169,9 +189,14 @@ class SentryEnvironment {
       metalness: 0.06,
       wireframe: false
     });
+    // Relief baseline for the operator exaggeration slider (percent of this).
+    this._baseDispScale = 14.0;
+    this._userExagg = 1.0; // operator slider multiplier (100% = classic relief)
+    this._autoOrbit = false;
 
     this.terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
     this.scene.add(this.terrainMesh);
+    this._applyDiffuseFallback(); // no-op unless the diffuse already failed
 
     // Tactical Elevation Contour Grid (Soft top-down topographic lines)
     const contourGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, 80, 80);
@@ -717,11 +742,8 @@ class SentryEnvironment {
 
     // Soften vertical relief while docked: full 14x displacement reads as
     // needle spikes at panel scale; ~55% keeps the ridgelines legible.
-    const m = this.terrainMesh ? this.terrainMesh.material : null;
-    if (m && m.displacementMap) {
-      if (m.userData._backdropDispScale === undefined) m.userData._backdropDispScale = m.displacementScale;
-      m.displacementScale = m.userData._backdropDispScale * 0.55;
-    }
+    // The operator slider (setExaggeration) multiplies on top of this.
+    this._applyRelief();
 
     const wp = this.sectorWaypoints[this.activeAoi] || this.sectorWaypoints[Object.keys(this.sectorWaypoints)[0]];
     if (wp) {
@@ -755,7 +777,7 @@ class SentryEnvironment {
       this.renderer.toneMappingExposure = this._backdropProfile.exposure;
       if (this.scene.fog) this.scene.fog.density = this._backdropProfile.fogDensity;
     }
-    // Restore the photographic backdrop material.
+    // Restore the photographic backdrop material + full relief.
     if (this.terrainMesh) {
       const m = this.terrainMesh.material;
       if (m.userData._backdropMap) {
@@ -763,9 +785,7 @@ class SentryEnvironment {
         m.vertexColors = false;
         m.needsUpdate = true;
       }
-      if (m.userData._backdropDispScale !== undefined) {
-        m.displacementScale = m.userData._backdropDispScale;
-      }
+      this._applyRelief();
     }
   }
 
@@ -792,6 +812,77 @@ class SentryEnvironment {
       this.groundSwath.position.x = wp.target.x;
       this.groundSwath.position.z = wp.target.z;
     }
+  }
+
+  /**
+   * Fallback when the photographic diffuse texture is unavailable: flat
+   * slate rock color so the terrain still reads instead of rendering black.
+   */
+  _applyDiffuseFallback() {
+    if (!this._diffuseFailed || !this.terrainMesh) return;
+    const m = this.terrainMesh.material;
+    m.map = null;
+    m.color.set(0x39434f);
+    m.needsUpdate = true;
+  }
+
+  /** Recompute relief from baseline × dock factor × operator slider. */
+  _applyRelief() {
+    const m = this.terrainMesh ? this.terrainMesh.material : null;
+    if (!m || !m.displacementMap) return;
+    const dockFactor = this.dockedEl ? 0.55 : 1.0;
+    m.displacementScale = this._baseDispScale * dockFactor * (this._userExagg ?? 1);
+  }
+
+  /** Operator slider: percent of classic relief (100 = unchanged). */
+  setExaggeration(pct) {
+    const v = Math.min(150, Math.max(10, Number(pct) || 100));
+    this._userExagg = v / 100;
+    this._applyRelief();
+  }
+
+  setContoursVisible(visible) {
+    if (this.contourMesh) this.contourMesh.visible = Boolean(visible);
+  }
+
+  setAutoOrbit(enabled) {
+    this._autoOrbit = Boolean(enabled);
+  }
+
+  /**
+   * Photo texture (true) vs elevation-ramp coloring (false).
+   * Returns false when the elevation ramp isn't built yet.
+   */
+  setPhotoMaterial(photo) {
+    if (!this.terrainMesh) return false;
+    const m = this.terrainMesh.material;
+    if (photo) {
+      if (m.userData._backdropMap && !this._diffuseFailed) {
+        m.map = m.userData._backdropMap;
+        m.vertexColors = false;
+        m.needsUpdate = true;
+      } else if (!this._diffuseFailed) {
+        m.vertexColors = false;
+        m.needsUpdate = true;
+      }
+      return true;
+    }
+    if (!this._hypsometryReady) return false;
+    if (!m.userData._backdropMap) m.userData._backdropMap = m.map;
+    m.map = null;
+    m.vertexColors = true;
+    m.needsUpdate = true;
+    return true;
+  }
+
+  /** Snapshot for the console HUD. */
+  terrainInfo() {
+    return {
+      ready: Object.values(this.terrainState || {}).every((v) => v === 'ready'),
+      textures: { ...(this.terrainState || {}) },
+      hypsometry: Boolean(this._hypsometryReady),
+      docked: Boolean(this.dockedEl),
+    };
   }
 
   _animate() {
@@ -823,6 +914,10 @@ class SentryEnvironment {
     }
 
     // Smooth camera interpolation
+    if (this._autoOrbit) {
+      this.spherical.theta += delta * 0.12; // slow cinematic orbit
+      this._updateSphericalPosition();
+    }
     this.camera.position.lerp(this.desiredPos, 0.045);
     this.cameraTarget.lerp(this.desiredTarget, 0.045);
     this.camera.lookAt(this.cameraTarget);

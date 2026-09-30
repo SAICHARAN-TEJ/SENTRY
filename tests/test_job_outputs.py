@@ -211,7 +211,7 @@ def reconstruct_env(fake_db, tmp_path, monkeypatch):
 
 
 def test_reconstruct_writes_previews_and_run_metadata(reconstruct_env, monkeypatch):
-    """The worker's reconstruct job emits all five PRD §11 artifacts."""
+    """The worker's reconstruct job emits all PRD §11 artifacts (5 previews)."""
     from backend.queue import set_active_claim
     from worker import run as run_mod
 
@@ -226,12 +226,17 @@ def test_reconstruct_writes_previews_and_run_metadata(reconstruct_env, monkeypat
 
     types = sorted(a["artifact_type"] for a in
                    env["fake_db"].artifacts.values())
-    assert types == ["preview_false_color", "preview_rgb", "run_metadata",
+    assert types == ["preview_false_color", "preview_observation",
+                     "preview_residual", "preview_rgb",
+                     "preview_uncertainty", "run_metadata",
                      "sr_output", "uncertainty"]
     by_type = {a["artifact_type"]: a for a in env["fake_db"].artifacts.values()}
     # PNG previews really exist on disk and are valid images.
     for t, name in (("preview_rgb", "preview_rgb.png"),
-                    ("preview_false_color", "preview_false_color.png")):
+                    ("preview_false_color", "preview_false_color.png"),
+                    ("preview_observation", "preview_observation.png"),
+                    ("preview_uncertainty", "preview_uncertainty.png"),
+                    ("preview_residual", "preview_residual.png")):
         p = env["root"] / "previews" / by_type[t]["object_key"]
         assert p.exists(), p
         assert Image.open(p).format == "PNG"
@@ -247,7 +252,7 @@ def test_reconstruct_writes_previews_and_run_metadata(reconstruct_env, monkeypat
     assert meta["runtime"]["runtime_s"] is not None
     # The job completed and every artifact is retrievable through the job view.
     assert job["status"] == "COMPLETED"
-    assert len(arts) == 5
+    assert len(arts) == 8
 
 
 def test_reconstruct_media_types_registered(reconstruct_env, monkeypatch):

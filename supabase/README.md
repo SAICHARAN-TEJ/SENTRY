@@ -8,7 +8,7 @@ logical identity (object keys, checksums, dimensions).
 
 ```bash
 supabase start          # boots local Postgres, Auth, Storage, Realtime (CLI)
-supabase db reset       # applies supabase/migrations/* in order, then seed.sql
+supabase db reset       # applies supabase/migrations/* in order (seeds live in 0006_seed.sql)
 ```
 
 Migrations are applied in numeric order:
@@ -17,12 +17,19 @@ Migrations are applied in numeric order:
 |---|---|
 | `0001_extensions.sql` | PostGIS + pgcrypto |
 | `0002_core_tables.sql` | 20-table core schema (orgs, projects, AOIs, scenes, jobs, validation, provenance) |
-| `0003_compatibility.sql` | Upgrade-safe ownership/queue compatibility columns and fingerprints |
-| `0003_indexes.sql` | GiST spatial indexes + btree/composite queue indexes |
+| `0003a_compatibility.sql` | Upgrade-safe ownership/queue compatibility columns and fingerprints |
+| `0003b_indexes.sql` | GiST spatial indexes + btree/composite queue indexes |
 | `0004_rls.sql` | RLS policies, helper functions, realtime publication |
 | `0005_storage.sql` | 8 private buckets + project-scoped object read policy |
 | `0006_seed.sql` | Dataset sources, model registry, demo project, protocol registration |
 | `0007_job_retry_index.sql` | Active idempotency index, duplicate preflights, artifact/report constraints |
+| `0008_job_lease.sql` | Claim lease + fencing token columns |
+| `0009_output_schema.sql` | Output artifact schema hardening |
+| `0010_model_cards.sql` | Model card enrichment |
+| `0011_preview_artifacts.sql` | Preview artifact types |
+| `0012_hardening.sql` | Constraints + seed version pins |
+| `0013_alerts.sql` | Alerts domain tables |
+| `0014_alerts_rls.sql` | Alerts RLS policies |
 
 ## Storage buckets
 

@@ -1,7 +1,7 @@
 -- 0004_rls.sql
 -- SIH26142 "Sentry" - row-level security, helper functions, realtime publication.
 -- Depends on: 0002_core_tables.sql, 0003a_compatibility.sql, 0003b_indexes.sql.
--- NOTE: 0003_compatibility.sql runs before 0003_indexes.sql alphabetically
+-- NOTE: 0003a_compatibility.sql runs before 0003b_indexes.sql alphabetically
 --
 -- Model: project-scoped access via project_members (owner > operator > reviewer > viewer).
 -- Workers connect with the service role (bypasses RLS server-side); clients use Supabase

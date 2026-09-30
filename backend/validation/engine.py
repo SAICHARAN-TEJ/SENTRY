@@ -25,15 +25,57 @@ DEFAULT_THRESHOLDS = {
     "observation_rmse_hard": 0.05,   # FAIL above this (reflectance units)
     "ref_coverage_soft": 0.9,        # CAUTION below
     "calib_corr_soft": 0.2,          # CAUTION below
+    "calib_corr_ok": 0.4,            # "calibrated" at or above
+    "calib_monotonicity_ok": 0.5,    # decile rank correlation for "calibrated"
     "ssim_soft": 0.5,                # CAUTION below
     "sam_soft": 0.15,                # CAUTION above (radians)
     "min_ref_coverage": 0.1,         # FAIL below: not enough reference to judge
+    "valid_coverage_soft": 0.5,      # CAUTION below
+    "uncertainty_coverage_soft": 0.9,  # CAUTION below
 }
+
+# Status vocabulary shared by every gate check and the UI.
+PASS, CAUTION, FAIL, NOT_EVALUATED = "PASS", "CAUTION", "FAIL", "NOT_EVALUATED"
+
+
+def json_safe(obj):
+    """Recursively replace non-finite floats (NaN/inf) with None.
+
+    Python's json module serializes inf as the literal ``Infinity``, which is
+    not valid JSON: strict parsers (including the browser's JSON.parse used by
+    the console) reject the whole report. Engine metrics legitimately contain
+    inf (PSNR of identical images), so every report boundary must pass through
+    here before ``json.dumps``.
+    """
+    if isinstance(obj, float):
+        return obj if np.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    return obj
 
 # Documented degradation operator (PRD 9.2). Anti-aliased resampling is a
 # generic approximation of the sensor spatial response; the S2 MTF/point-spread
 # function is NOT modeled. Recorded in every observation-consistency result.
 DEGRADATION_OPERATOR = "anti-aliased resize (generic approximation; S2 MTF not modeled)"
+
+# Missing-evidence policy for a run with no high-resolution reference. Such a
+# run collects NO full-reference evidence: spatial/spectral fidelity and
+# uncertainty calibration are all NOT_EVALUATED. It still reports observation
+# consistency, coverage and uncertainty, but super-resolution accuracy is
+# unverified, so it is deliberately never allowed to read as PASS. The verdict
+# is CAUTION and this sentence is the reported reason.
+NO_REFERENCE_REASON = (
+    "no high-resolution reference supplied: super-resolution accuracy is "
+    "unverified; this run reports observation consistency and uncertainty only")
+
+# The composite score is a mean of full-reference fidelity terms. With none of
+# them computed it would collapse to valid-pixel coverage alone, which reads as
+# a near-perfect result for a run whose accuracy was never measured. The score
+# is therefore withheld rather than reported.
+NO_REFERENCE_SCORE_NOTE = (
+    "no full-reference evidence collected, so no composite fidelity score is reported")
 
 
 def check_geometric(a: dict, b: dict) -> dict:
@@ -124,23 +166,27 @@ def spatial_fidelity(sr: np.ndarray, ref: np.ndarray,
     erosion_size = win if ssim_map is not None else 1
     window_mask = erosion(mask, footprint=np.ones((erosion_size, erosion_size),
                                                     dtype=bool))
-    if not window_mask.any():
+    if not window_mask.any() or ssim_map is None:
+        # No eroded support (or an image too small for any SSIM window):
+        # missing evidence, never a subscript into None.
         ssim = None
-    elif ssim_map is not None and ssim_map.ndim == 3:
+    elif ssim_map.ndim == 3:
         ssim = float(np.mean(ssim_map[window_mask, :]))
     else:
         ssim = float(np.mean(ssim_map[window_mask]))
 
     lpips_score = None
-    if mask.all():
+    if mask.all() and sr.shape[2] >= 3:
         try:  # optional perceptual metric; guarded because lpips is heavy
             import torch
             import lpips as lpips_lib
 
             net = lpips_lib.LPIPS(net="alex")
             with torch.no_grad():
-                a = torch.from_numpy(np.moveaxis(sr, -1, 0))[None] * 2 - 1
-                b = torch.from_numpy(np.moveaxis(ref, -1, 0))[None] * 2 - 1
+                # LPIPS expects 3-channel RGB in [-1, 1]; use B04/B03/B02.
+                rgb_idx = [2, 1, 0] if sr.shape[2] >= 3 else list(range(sr.shape[2]))
+                a = torch.from_numpy(np.moveaxis(sr[..., rgb_idx], -1, 0))[None] * 2 - 1
+                b = torch.from_numpy(np.moveaxis(ref[..., rgb_idx], -1, 0))[None] * 2 - 1
                 lpips_score = float(net(a, b).item())
         except Exception:  # noqa: BLE001 - optional dependency
             lpips_score = None
@@ -188,6 +234,8 @@ def spectral_fidelity(sr: np.ndarray, ref: np.ndarray,
 def observation_consistency(sr: np.ndarray, s2: np.ndarray,
                             valid_mask: np.ndarray | None = None) -> dict:
     """Component D: documented degradation of SR vs the original S2 grid."""
+    if sr.ndim != 3 or s2.ndim != 3 or sr.shape[2] != s2.shape[2]:
+        raise ValueError("observation_consistency expects equally shaped (H, W, B) arrays")
     down = np.stack(
         [resize(sr[..., i], s2.shape[:2], anti_aliasing=True, preserve_range=True)
          for i in range(sr.shape[2])],
@@ -198,7 +246,8 @@ def observation_consistency(sr: np.ndarray, s2: np.ndarray,
         valid &= np.asarray(valid_mask, dtype=bool)
     per_band: dict = {}
     residuals = np.zeros_like(s2, dtype=np.float32)
-    for i, band in enumerate(BANDS):
+    bands = BANDS if s2.shape[2] == len(BANDS) else [f"B{i:02d}" for i in range(s2.shape[2])]
+    for i, band in enumerate(bands):
         diff = (down[..., i] - s2[..., i])
         residuals[..., i] = np.where(valid, diff, 0.0)
         if valid.any():
@@ -207,7 +256,7 @@ def observation_consistency(sr: np.ndarray, s2: np.ndarray,
                               "mean": float(np.mean(v)), "std": float(np.std(v))}
         else:
             per_band[band] = {"rmse": None, "mean": None, "std": None}
-    finite_rmses = [per_band[b]["rmse"] for b in BANDS
+    finite_rmses = [per_band[b]["rmse"] for b in bands
                     if per_band[b]["rmse"] is not None]
     rmse_mean = float(np.mean(finite_rmses)) if finite_rmses else None
     return {"per_band": per_band, "rmse_mean": rmse_mean,
@@ -231,17 +280,32 @@ def reference_agreement(sr: np.ndarray, ref: np.ndarray, grid_m: float,
             "metrics": {**spatial, **spectral}}
 
 
+def _spearman(x: np.ndarray, y: np.ndarray) -> float | None:
+    """Rank correlation, dependency-free; ``None`` when undefined."""
+    if x.size < 3 or np.std(x) == 0 or np.std(y) == 0:
+        return None
+    rx = np.argsort(np.argsort(x)).astype(np.float64)
+    ry = np.argsort(np.argsort(y)).astype(np.float64)
+    if np.std(rx) == 0 or np.std(ry) == 0:
+        return None
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
 def uncertainty_quality(unc: np.ndarray, sr: np.ndarray,
                          ref: np.ndarray | None = None,
-                         valid_mask: np.ndarray | None = None) -> dict:
-    """Component F: coverage, percentiles, reliability diagnostics.
+                         valid_mask: np.ndarray | None = None,
+                         uncertainty_kind: str | None = None) -> dict:
+    """Component F: coverage, percentiles, reliability + calibration verdict.
 
     ``coverage`` = fraction of FINITE uncertainty pixels (valid observation),
-    not fraction of positive values. Calibration: when a reference is given,
-    a decile reliability curve (mean uncertainty vs mean realized error per
-    uncertainty decile) plus error correlation; nominal-level CDFs of
-    uncertainty alone do NOT measure calibration and are reported separately
-    only as the uncertainty distribution.
+    not fraction of positive values.
+
+    Calibration asks the only question that matters: *do pixels the model is
+    unsure about actually have larger reconstruction error?* It is answered by
+    the decile reliability curve plus the error correlation, and summarised in
+    ``calibration_status``. Uncertainty that is not probabilistic by
+    construction (``auxiliary_gradient_indicator``) is never reported as
+    calibrated — it is reported as not evaluated, with the reason attached.
     """
     finite = np.isfinite(unc)
     if valid_mask is not None:
@@ -256,22 +320,68 @@ def uncertainty_quality(unc: np.ndarray, sr: np.ndarray,
         "coverage": float(finite.mean()),
         "calibration": None,
         "error_correlation": None,
+        "uncertainty_kind": uncertainty_kind,
+        "calibration_status": "not_evaluated",
+        "calibration_reason": None,
     }
-    if ref is not None and sr.shape[:2] == ref.shape[:2] and unc.shape == sr.shape[:2]:
-        err = np.abs(sr - ref).mean(axis=2)
-        m = finite & np.isfinite(err)
-        if m.sum() > 2 and np.std(unc[m]) > 0 and np.std(err[m]) > 0:
-            out["error_correlation"] = float(np.corrcoef(unc[m], err[m])[0, 1])
-            # Decile reliability curve: does higher uncertainty carry higher error?
-            q = np.quantile(unc[m], np.linspace(0, 1, 11))
-            q[0] -= 1e-9
-            bins = np.clip(np.digitize(unc[m], q) - 1, 0, 9)
-            curve = [{"decile": k,
-                      "mean_uncertainty": float(np.mean(unc[m][bins == k])),
-                      "mean_abs_error": float(np.mean(err[m][bins == k]))}
-                     for k in range(10) if (bins == k).any()]
-            out["calibration"] = {"reliability_curve": curve,
-                                  "n_valid": int(m.sum())}
+    probabilistic = uncertainty_kind == "stochastic_sampling_std"
+    if not probabilistic and uncertainty_kind is not None:
+        out["calibration_reason"] = (
+            f"{uncertainty_kind} is not a probabilistic uncertainty estimate; "
+            "calibration against reconstruction error is not applicable")
+        return out
+
+    if ref is None:
+        out["calibration_reason"] = "no high-resolution reference available"
+        return out
+    if not (sr.shape[:2] == ref.shape[:2] and unc.shape == sr.shape[:2]):
+        out["calibration_reason"] = "uncertainty/reference/SR grids differ"
+        return out
+
+    err = np.abs(sr - ref).mean(axis=2)
+    m = finite & np.isfinite(err)
+    if m.sum() <= 2 or np.std(unc[m]) <= 0 or np.std(err[m]) <= 0:
+        out["calibration_reason"] = "too few valid pixels or no uncertainty spread"
+        return out
+
+    out["error_correlation"] = float(np.corrcoef(unc[m], err[m])[0, 1])
+    # Decile reliability curve: does higher uncertainty carry higher error?
+    q = np.quantile(unc[m], np.linspace(0, 1, 11))
+    q[0] -= 1e-9
+    bins = np.clip(np.digitize(unc[m], q) - 1, 0, 9)
+    curve = [{"decile": k,
+              "mean_uncertainty": float(np.mean(unc[m][bins == k])),
+              "mean_abs_error": float(np.mean(err[m][bins == k])),
+              "n_pixels": int((bins == k).sum())}
+             for k in range(10) if (bins == k).any()]
+    monotonicity = None
+    if len(curve) >= 3:
+        monotonicity = _spearman(np.array([c["mean_uncertainty"] for c in curve]),
+                                np.array([c["mean_abs_error"] for c in curve]))
+    top, bottom = (curve[-1]["mean_abs_error"], curve[0]["mean_abs_error"])
+    out["calibration"] = {
+        "reliability_curve": curve,
+        "n_valid": int(m.sum()),
+        "decile_rank_correlation": monotonicity,
+        "highest_decile_mean_error": top,
+        "lowest_decile_mean_error": bottom,
+        "error_ratio_top_over_bottom": (round(top / bottom, 3)
+                                        if bottom and bottom > 0 else None),
+    }
+    ok_corr = out["error_correlation"] >= DEFAULT_THRESHOLDS["calib_corr_ok"]
+    ok_mono = (monotonicity is not None
+               and monotonicity >= DEFAULT_THRESHOLDS["calib_monotonicity_ok"])
+    if ok_corr and ok_mono:
+        out["calibration_status"] = "calibrated"
+        out["calibration_reason"] = (
+            f"uncertainty tracks realized error (r={out['error_correlation']:.3f}, "
+            f"decile rank correlation={monotonicity:.3f})")
+    else:
+        out["calibration_status"] = "weak"
+        out["calibration_reason"] = (
+            "uncertainty does not reliably track realized error "
+            f"(r={out['error_correlation']:.3f}, "
+            f"decile rank correlation={monotonicity if monotonicity is None else round(monotonicity, 3)})")
     return out
 
 
@@ -309,63 +419,300 @@ def _finite_or_none(value, *, allow_pos_inf: bool = False) -> float | None:
     return v
 
 
-def decide_overall_status(geometric: dict, metrics: dict,
-                          thresholds: dict | None = None) -> dict:
-    """PRD 9.3 decision: PASS / CAUTION / FAIL plus a [0,1] score.
+def _check(name: str, status: str, detail: str, *,
+           value: float | None = None,
+           threshold: float | None = None) -> dict:
+    """One gate check: what was tested, how it came out, and against what."""
+    return {"name": name, "status": status, "detail": detail,
+            "value": value, "threshold": threshold}
+
+
+# UI order for the evidence list (PRD §13 / task §13).
+CHECK_ORDER = ["georeferencing", "observation_consistency", "spatial_fidelity",
+               "spectral_fidelity", "uncertainty_quality", "reference_coverage",
+               "valid_coverage"]
+
+
+def quality_gate(geometric: dict, metrics: dict,
+                 thresholds: dict | None = None) -> dict:
+    """PRD 9.3 decision with per-check evidence: PASS / CAUTION / FAIL.
 
     Mandatory metrics must be present AND finite; NaN/inf counts as missing
-    evidence and fails the run.
+    evidence and fails the run. Missing uncertainty fails the run when the
+    caller declares ``uncertainty_present=False`` — a reconstruction whose
+    uncertainty was never computed can never read as validated.
+
+    A run with no high-resolution reference collects no full-reference evidence
+    at all, so it can never read as PASS: the verdict is CAUTION, the missing
+    evidence is named as the reason, and the composite ``score`` is withheld
+    (``None``) rather than computed from coverage alone. ``score_note`` explains
+    the omission.
+
+    Returns ``checks`` alongside the verdict so the UI can show exactly which
+    gates passed, which were merely weak, and which failed.
     """
     th = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
-    reasons: list[str] = []
+    checks: list[dict] = []
+    fails: list[str] = []
+    cautions: list[str] = []
 
-    if not geometric.get("pass", False):
-        reasons.append(f"geometric check failed: {geometric.get('reasons')}")
+    def add(name, status, detail, value=None, threshold=None):
+        checks.append(_check(name, status, detail, value=value, threshold=threshold))
+        if status == FAIL:
+            fails.append(detail)
+        elif status == CAUTION:
+            cautions.append(detail)
 
+    # --- georeferencing --------------------------------------------------- #
+    if geometric.get("pass", False):
+        add("georeferencing", PASS, "CRS, affine transform, grid and bounds agree")
+    else:
+        add("georeferencing", FAIL,
+            f"geometric check failed: {geometric.get('reasons')}")
+
+    # --- observation consistency ----------------------------------------- #
     obs_rmse = _finite_or_none(metrics.get("observation_rmse"))
     if obs_rmse is None:
-        reasons.append("mandatory observation-consistency metric missing or non-finite")
+        add("observation_consistency", FAIL,
+            "mandatory observation-consistency metric missing or non-finite")
     elif obs_rmse > th["observation_rmse_hard"]:
-        reasons.append(f"observation consistency rmse {obs_rmse:.4f} > hard threshold")
+        add("observation_consistency", FAIL,
+            f"observation consistency rmse {obs_rmse:.4f} > hard threshold",
+            obs_rmse, th["observation_rmse_hard"])
+    else:
+        add("observation_consistency", PASS,
+            f"scale-back rmse {obs_rmse:.4f} within tolerance",
+            obs_rmse, th["observation_rmse_hard"])
 
-    used_ref = metrics.get("used_reference", False)
-    if used_ref:
-        for key in ("psnr", "ssim", "sam"):
-            if _finite_or_none(metrics.get(key), allow_pos_inf=(key == "psnr")) is None:
-                reasons.append(f"mandatory reference metric missing or non-finite: {key}")
-        cov = _finite_or_none(metrics.get("ref_coverage"))
-        if cov is not None and cov < th["min_ref_coverage"]:
-            reasons.append(f"reference coverage {cov:.3f} below minimum")
-
-    if reasons:
-        return {"overall_status": "FAIL", "score": 0.0, "reasons": reasons,
-                "thresholds_applied": th}
-
-    cautions: list[str] = []
-    cov = _finite_or_none(metrics.get("ref_coverage"))
-    if used_ref and cov is not None and cov < th["ref_coverage_soft"]:
-        cautions.append("reference coverage below soft threshold")
-    corr = _finite_or_none(metrics.get("error_correlation"))
-    if used_ref and corr is not None and corr < th["calib_corr_soft"]:
-        cautions.append(f"uncertainty calibration weak (corr={corr:.3f})")
+    used_ref = bool(metrics.get("used_reference", False))
     ssim = _finite_or_none(metrics.get("ssim"))
-    if used_ref and ssim is not None and ssim < th["ssim_soft"]:
-        cautions.append(f"ssim below soft threshold ({ssim:.3f})")
     sam = _finite_or_none(metrics.get("sam"))
-    if used_ref and sam is not None and sam > th["sam_soft"]:
-        cautions.append(f"sam above soft threshold ({sam:.3f})")
+    cov = _finite_or_none(metrics.get("ref_coverage"))
 
-    # Score: normalized blend of available components.
+    # --- spatial fidelity ------------------------------------------------- #
+    if not used_ref:
+        add("spatial_fidelity", NOT_EVALUATED,
+            "no high-resolution reference supplied; full-reference metrics not computed")
+    else:
+        missing = [k for k in ("psnr", "ssim") if _finite_or_none(
+            metrics.get(k), allow_pos_inf=(k == "psnr")) is None]
+        if missing:
+            for key in missing:
+                add("spatial_fidelity", FAIL,
+                    f"mandatory reference metric missing or non-finite: {key}")
+        elif ssim is not None and ssim < th["ssim_soft"]:
+            add("spatial_fidelity", CAUTION,
+                f"ssim below soft threshold ({ssim:.3f})", ssim, th["ssim_soft"])
+        else:
+            add("spatial_fidelity", PASS,
+                f"ssim {ssim:.3f} at or above the soft threshold", ssim, th["ssim_soft"])
+
+    # --- spectral fidelity ------------------------------------------------ #
+    if not used_ref:
+        add("spectral_fidelity", NOT_EVALUATED,
+            "no high-resolution reference supplied; spectral agreement not computed")
+    elif _finite_or_none(metrics.get("sam")) is None:
+        add("spectral_fidelity", FAIL,
+            "mandatory reference metric missing or non-finite: sam")
+    elif sam is not None and sam > th["sam_soft"]:
+        add("spectral_fidelity", CAUTION,
+            f"sam above soft threshold ({sam:.3f} rad)", sam, th["sam_soft"])
+    else:
+        add("spectral_fidelity", PASS,
+            f"sam {sam:.3f} rad within tolerance", sam, th["sam_soft"])
+
+    # --- uncertainty quality ---------------------------------------------- #
+    present = metrics.get("uncertainty_present")
+    unc_cov = _finite_or_none(metrics.get("uncertainty_coverage"))
+    if present is False:
+        add("uncertainty_quality", FAIL,
+            "uncertainty raster missing: the reconstruction was never quantified")
+    else:
+        calib = metrics.get("calibration_status")
+        corr = _finite_or_none(metrics.get("error_correlation"))
+        if unc_cov is not None and unc_cov < th["uncertainty_coverage_soft"]:
+            add("uncertainty_quality", CAUTION,
+                f"uncertainty covered only {unc_cov:.1%} of the grid",
+                unc_cov, th["uncertainty_coverage_soft"])
+        elif used_ref and corr is not None and corr < th["calib_corr_soft"]:
+            # The only question that matters: does uncertainty predict error?
+            add("uncertainty_quality", CAUTION,
+                f"uncertainty calibration weak (corr={corr:.3f})",
+                corr, th["calib_corr_soft"])
+        elif used_ref and calib == "calibrated":
+            add("uncertainty_quality", PASS,
+                f"uncertainty tracks realized error (corr={corr:.3f})",
+                corr, th["calib_corr_ok"])
+        elif used_ref and corr is not None:
+            add("uncertainty_quality", PASS,
+                f"uncertainty/error correlation {corr:.3f} at or above the soft "
+                "threshold", corr, th["calib_corr_soft"])
+        elif used_ref:
+            add("uncertainty_quality", NOT_EVALUATED,
+                metrics.get("calibration_reason")
+                or "uncertainty produced but calibration not established")
+        elif present is True:
+            add("uncertainty_quality", NOT_EVALUATED,
+                metrics.get("calibration_reason")
+                or "uncertainty produced but not calibrated (no reference)")
+        else:
+            add("uncertainty_quality", NOT_EVALUATED,
+                "uncertainty contribution not declared by the caller")
+
+    # --- reference coverage ----------------------------------------------- #
+    if not used_ref:
+        add("reference_coverage", NOT_EVALUATED,
+            "no reference: this run reports observation consistency and uncertainty only")
+    elif cov is None:
+        add("reference_coverage", FAIL, "reference coverage could not be computed")
+    elif cov < th["min_ref_coverage"]:
+        add("reference_coverage", FAIL,
+            f"reference coverage {cov:.3f} below minimum", cov, th["min_ref_coverage"])
+    elif cov < th["ref_coverage_soft"]:
+        add("reference_coverage", CAUTION,
+            f"reference coverage {cov:.3f} below soft threshold",
+            cov, th["ref_coverage_soft"])
+    else:
+        add("reference_coverage", PASS,
+            f"reference covered {cov:.1%} of the evaluation grid",
+            cov, th["ref_coverage_soft"])
+
+    # --- valid pixel coverage --------------------------------------------- #
+    vcov = _finite_or_none(metrics.get("valid_coverage"))
+    if vcov is None:
+        add("valid_coverage", NOT_EVALUATED, "valid-pixel coverage not reported")
+    elif vcov < th["valid_coverage_soft"]:
+        add("valid_coverage", CAUTION,
+            f"only {vcov:.1%} of pixels carried usable observation",
+            vcov, th["valid_coverage_soft"])
+    else:
+        add("valid_coverage", PASS, f"{vcov:.1%} of pixels carried usable observation",
+            vcov, th["valid_coverage_soft"])
+
+    checks.sort(key=lambda c: CHECK_ORDER.index(c["name"])
+                if c["name"] in CHECK_ORDER else 99)
+
+    if fails:
+        return {"overall_status": FAIL, "score": 0.0, "reasons": fails,
+                "cautions": cautions, "checks": checks, "thresholds_applied": th}
+
+    # --- missing-evidence policy ------------------------------------------ #
+    # No reference means no fidelity evidence and no way to score it. Return
+    # CAUTION with the missing evidence named first; a partial composite (which
+    # would be valid-pixel coverage alone) is exactly the kind of number that
+    # makes an unverified reconstruction look validated.
+    if not used_ref:
+        cautions = [NO_REFERENCE_REASON, *cautions]
+        return {"overall_status": CAUTION, "score": None,
+                "score_note": NO_REFERENCE_SCORE_NOTE,
+                "reasons": list(cautions), "cautions": cautions,
+                "checks": checks, "thresholds_applied": th}
+
     parts: list[float] = []
     if ssim is not None:
         parts.append(float(np.clip(ssim, 0, 1)))
     if sam is not None:
         parts.append(float(np.clip(1.0 - sam / (np.pi / 4.0), 0, 1)))
-    vcov = _finite_or_none(metrics.get("valid_coverage"))
     if vcov is not None:
         parts.append(float(np.clip(vcov, 0, 1)))
     score = round(float(np.mean(parts)), 3) if parts else 0.5
 
-    status = "CAUTION" if cautions else "PASS"
-    return {"overall_status": status, "score": score,
-            "reasons": cautions or ["all checks passed"], "thresholds_applied": th}
+    return {"overall_status": CAUTION if cautions else PASS, "score": score,
+            "reasons": cautions or ["all checks passed"], "cautions": cautions,
+            "checks": checks, "thresholds_applied": th}
+
+
+def decide_overall_status(geometric: dict, metrics: dict,
+                          thresholds: dict | None = None) -> dict:
+    """Backwards-compatible alias for :func:`quality_gate`."""
+    return quality_gate(geometric, metrics, thresholds)
+
+
+def classify_failure_modes(metrics: dict, checks: list[dict],
+                           *, context: dict | None = None) -> list[dict]:
+    """Explain *why* a result is weak, with what the system did and what to do.
+
+    A gate verdict without a diagnosis is not actionable. Each entry names a
+    plausible failure mode, the symptom that triggered it, the concrete cause,
+    the system's own behaviour, and the next step an operator should take.
+    This is deliberately evidence-linked: a mode is only reported when the
+    metric that supports it is actually present and out of bounds.
+    """
+    context = context or {}
+    th = DEFAULT_THRESHOLDS
+    findings: list[dict] = []
+
+    def add(mode_id, severity, symptom, cause, action):
+        findings.append({"mode": mode_id, "severity": severity, "symptom": symptom,
+                         "cause": cause,
+                         "system_behaviour": "output produced but flagged, not hidden",
+                         "action": action})
+
+    vcov = _finite_or_none(metrics.get("valid_coverage"))
+    obs = _finite_or_none(metrics.get("observation_rmse"))
+    cov = _finite_or_none(metrics.get("ref_coverage"))
+    sam = _finite_or_none(metrics.get("sam"))
+    ssim = _finite_or_none(metrics.get("ssim"))
+    corr = _finite_or_none(metrics.get("error_correlation"))
+    unc_p95 = _finite_or_none(metrics.get("uncertainty_p95"))
+    kind = metrics.get("uncertainty_kind")
+
+    if vcov is not None and vcov < th["valid_coverage_soft"]:
+        add("insufficient_valid_observation", "high",
+            f"only {vcov:.1%} of the grid carried usable observation",
+            "cloud, shadow or nodata masked most of the scene",
+            "choose a clearer acquisition window or a different AOI")
+    if obs is not None and obs > th["observation_rmse_hard"]:
+        add("observation_inconsistency", "high",
+            f"scale-back rmse {obs:.4f} exceeds the hard threshold",
+            "the reconstruction disagrees with the original 10 m measurement it must be consistent with",
+            "discard the output; re-run with a different model or revisit")
+    if metrics.get("used_reference") and cov is not None and cov < th["ref_coverage_soft"]:
+        add("weak_reference", "medium",
+            f"the reference covered only {cov:.1%} of the evaluation grid",
+            "the high-resolution reference does not fully overlap the SR footprint",
+            "treat full-reference metrics as indicative; extend the reference footprint")
+    if sam is not None and sam > th["sam_soft"]:
+        add("spectral_distortion", "medium",
+            f"spectral angle {sam:.3f} rad above tolerance",
+            "generated detail does not preserve spectral ratios",
+            "prefer the published baseline or retrain with a spectral-angle penalty")
+    if ssim is not None and ssim < th["ssim_soft"]:
+        add("fine_texture_mismatch", "medium",
+            f"structural similarity {ssim:.3f} below tolerance",
+            "fine texture was not reproduced consistently with the reference",
+            "inspect the residual and uncertainty map before using the texture")
+    if kind == "stochastic_sampling_std" and corr is not None \
+            and corr < th["calib_corr_soft"]:
+        add("uncertainty_not_calibrated", "medium",
+            f"uncertainty/error correlation {corr:.3f} is weak",
+            "the model's own uncertainty does not predict where it is wrong",
+            "do not use the uncertainty map as a reliability mask on this scene")
+    if kind == "auxiliary_gradient_indicator":
+        add("uncertainty_not_probabilistic", "low",
+            "the uncertainty raster is an edge-energy indicator",
+            "the selected model has no stochastic sampler",
+            "use opensr_ldsrs2 when a probabilistic uncertainty map is required")
+    # The threshold is in reflectance standard-deviation units, so it only means
+    # anything for a probabilistic map. An auxiliary gradient-energy indicator is
+    # normalised to [0, 1] by construction and would trip this on every textured
+    # scene, reporting "large uncertainty" about a quantity that is not one.
+    if kind == "stochastic_sampling_std" and unc_p95 is not None and unc_p95 > 0.1:
+        add("high_uncertainty", "medium",
+            f"95th-percentile uncertainty {unc_p95:.4f} is large",
+            "large parts of the reconstruction are weakly constrained by the input",
+            "report the uncertainty alongside the product, not a point estimate")
+
+    excluded = context.get("frames_excluded")
+    if excluded:
+        add("temporal_mismatch", "medium",
+            f"{excluded} candidate revisit(s) failed the scene-change safeguard",
+            "the surface changed between acquisitions, so those frames cannot be fused",
+            "review the excluded frames; if the change is real, process each date separately")
+    if not metrics.get("used_reference"):
+        add("no_reference_available", "low",
+            "no high-resolution reference was supplied",
+            "operational AOIs rarely have paired high-resolution truth",
+            "treat this run as a no-reference demonstration: consistency and "
+            "uncertainty are reported, accuracy is not claimed")
+    return findings

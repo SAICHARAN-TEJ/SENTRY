@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends
 
 from backend import db
@@ -62,7 +64,7 @@ async def create_project(body: ProjectCreate, user: dict = Depends(get_current_u
                 (project_id, entity_type, entity_id, event_type, actor, payload)
             values (%s, 'project', %s, 'project_created', %s, %s)
             """,
-            (proj["id"], proj["id"], user["id"], {"name": body.name}))
+            (proj["id"], proj["id"], user["id"], json.dumps({"name": body.name})))
     return ProjectOut(**proj)  # type: ignore[arg-type]
 
 

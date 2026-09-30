@@ -13,8 +13,8 @@
   <link rel="stylesheet" href="https://fonts.cdnfonts.com/css/sf-pro-display">
 
   <!-- Stylesheets -->
-  <link rel="stylesheet" href="css/spacex-theme.css?v=14">
-  <link rel="stylesheet" href="css/console.css?v=14">
+  <link rel="stylesheet" href="css/spacex-theme.css?v=16">
+  <link rel="stylesheet" href="css/console.css?v=16">
 
   <!-- Three.js CDN (r170) — terrain layer only; console degrades fully without it -->
   <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
@@ -83,8 +83,9 @@
       </nav>
 
       <div class="header-right">
-        <button id="connectBtn" class="button-ghost button-ghost-sm" aria-haspopup="dialog">Connect…</button>
-        <button id="runPipelineBtn" class="button-ghost button-ghost-sm">Run Pipeline</button>
+        <span id="utcClock" title="Zulu time — all operations run on UTC">--:--:--</span>
+        <button id="connectBtn" class="button-ghost button-ghost-sm" aria-haspopup="dialog" title="Backend address, operator identity and project scope">Connect…</button>
+        <button id="runPipelineBtn" class="button-ghost button-ghost-sm" title="Run the selected model on the staged scene">Run Pipeline</button>
       </div>
     </header>
 
@@ -95,6 +96,56 @@
            TAB 1: MAP & SRM SUPER-RESOLUTION ENGINE
            ═══════════════════════════════════════════════════════════ -->
       <section id="tabMap" class="tab-content active" role="tabpanel" aria-labelledby="tabMapBtn" tabindex="0">
+        <div class="hairline-card" id="backendRunBar" style="margin-bottom: 12px; padding: 10px 12px;">
+          <div class="run-steps" id="runSteps" role="list" aria-label="Run setup progress">
+            <button class="run-step" data-step="backend" role="listitem" title="Find and reach the backend API"><i class="step-dot">1</i>Backend</button>
+            <span class="run-step-sep" aria-hidden="true">→</span>
+            <button class="run-step" data-step="identity" role="listitem" title="Operator identity and project scope"><i class="step-dot">2</i>Identity</button>
+            <span class="run-step-sep" aria-hidden="true">→</span>
+            <button class="run-step" data-step="scene" role="listitem" title="Pick a staged scene and model"><i class="step-dot">3</i>Scene + Model</button>
+            <span class="run-step-sep" aria-hidden="true">→</span>
+            <button class="run-step" data-step="run" role="listitem" title="Submit the job"><i class="step-dot">4</i>Run</button>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: end;">
+            <div>
+              <label class="micro-cap" for="modelSelect" style="display: block; margin-bottom: 4px;">Model</label>
+              <select id="modelSelect" class="console-select" aria-label="Select super-resolution model">
+                <option value="bicubic_4x">bicubic_4x — deterministic baseline</option>
+                <option value="custom_mf_sr">custom_mf_sr — multi-frame fusion</option>
+                <option value="opensr_ldsrs2">opensr_ldsrs2 — latent diffusion (needs weights)</option>
+              </select>
+            </div>
+            <div>
+              <label class="micro-cap" for="modeSelect" style="display: block; margin-bottom: 4px;">Mode</label>
+              <select id="modeSelect" class="console-select" aria-label="Select job mode">
+                <option value="reconstruct_validate">reconstruct + validate (full evidence)</option>
+                <option value="reconstruct">reconstruct only</option>
+                <option value="benchmark">benchmark (identical inputs, all comparators)</option>
+                <option value="preprocess">preprocess only</option>
+                <option value="validate">validate only</option>
+              </select>
+            </div>
+            <div>
+              <label class="micro-cap" for="sceneSelect" style="display: block; margin-bottom: 4px;">Scene (staged L2A)</label>
+              <select id="sceneSelect" class="console-select" aria-label="Select a staged scene">
+                <option value="">— connect to list scenes —</option>
+              </select>
+            </div>
+            <div>
+              <label class="micro-cap" for="samplingStepsInput" style="display: block; margin-bottom: 4px;">Sampling steps (adv.)</label>
+              <input id="samplingStepsInput" class="console-select" type="number" min="1" max="1000" placeholder="default" style="width: 110px;" autocomplete="off">
+            </div>
+            <div>
+              <label class="micro-cap" for="frameCapInput" style="display: block; margin-bottom: 4px;">Max frames ≤8 (adv.)</label>
+              <input id="frameCapInput" class="console-select" type="number" min="1" max="8" placeholder="8" style="width: 90px;" autocomplete="off">
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button id="demoSessionBtn" class="button-ghost button-ghost-sm">Demo Session</button>
+              <button id="runJobBtn" class="button-ghost button-ghost-sm">Run Selected Model</button>
+            </div>
+            <span id="runStatusLine" class="micro-cap" role="status" style="flex-basis: 100%; opacity: 0.8;">Not connected — use Demo Session or Connect…</span>
+          </div>
+        </div>
         <div class="srm-map-layout">
           <!-- Left: Canvas Viewport -->
           <div class="map-viewport-panel">
@@ -106,6 +157,17 @@
                 <button class="map-toggle-btn" data-view="FINE" aria-pressed="false">2.5m Resolved</button>
                 <button class="map-toggle-btn" data-view="3D" aria-pressed="false">3D Tactical DEM</button>
               </div>
+            </div>
+
+            <!-- 3D terrain controls (visible only in 3D mode) -->
+            <div class="terrain-controls" id="terrainControls" hidden>
+              <label title="Vertical exaggeration of the elevation model">Relief
+                <input id="terrainExagg" type="range" min="10" max="150" value="100" aria-label="Elevation exaggeration percent">
+              </label>
+              <label title="Toggle the elevation contour overlay"><input id="terrainContours" type="checkbox" checked> Contours</label>
+              <label title="Slow cinematic auto-orbit"><input id="terrainOrbit" type="checkbox"> Auto-orbit</label>
+              <label title="Photographic rock texture vs elevation ramp coloring"><input id="terrainMaterial" type="checkbox"> Photo texture</label>
+              <button id="terrainFlyBtn" class="button-ghost button-ghost-sm" title="Fly the camera to the selected AOI sector">Fly to sector</button>
             </div>
 
             <!-- Canvas Container with Split Slider -->
@@ -138,9 +200,9 @@
 
                 <!-- 3D Tactical DEM HUD (visible only in 3D mode) -->
                 <div class="map-hud-overlay hud-top-right hud-3d" hidden>
-                  <div class="hud-title">3D Tactical DEM</div>
-                  <div>Drag to orbit &middot; Scroll to zoom</div>
-                  <div>Visualization &mdash; not analysis output</div>
+                  <div class="hud-title">3D Tactical DEM — Himalayan terrain model</div>
+                  <div id="terrainStatus">Starting 3D engine…</div>
+                  <div>Drag to orbit &middot; Scroll to zoom &middot; Visualization, not analysis output</div>
                 </div>
 
                 <!-- Legend -->
@@ -179,6 +241,14 @@
             <div class="inspector-header">
               <span class="micro-cap eyebrow-accent">FCLS Pixel Inspector</span>
               <span id="inspectCoordBadge" class="chip neutral">X:14 Y:16</span>
+            </div>
+            <div class="inspector-header" style="margin-top: 6px;">
+              <span class="micro-cap">Grid ref</span>
+              <span id="selectedCoordChip" class="chip neutral">—</span>
+            </div>
+            <div class="inspector-header" style="margin-top: 6px;">
+              <span class="micro-cap">Source tile</span>
+              <span id="statusTile" class="chip neutral">Tile: S2A_MSIL2A_20260308T045651_N0400</span>
             </div>
 
             <!-- Sub-pixel Allocation Preview -->
@@ -471,6 +541,9 @@
               </div>
               <span id="traceHashChip" class="chip neutral">Hash: e3b0c442&hellip;991b7852</span>
             </div>
+            <div style="margin: 8px 0;">
+              <span id="pipelineStatus" class="chip neutral" role="status">Pipeline: idle</span>
+            </div>
 
             <pre id="traceJsonBox" class="json-inspector-box" tabindex="0" aria-label="Stage artifact JSON"></pre>
 
@@ -566,21 +639,45 @@
         <button id="connectCloseBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Close</button>
       </div>
       <div class="modal-body">
-        <div class="hairline-card" style="margin-bottom: 14px;">
-          <span class="micro-cap" style="display: block; margin-bottom: 6px;">Dev identity (local development)</span>
-          <label class="micro-cap" for="connectUserInput" style="display:block; margin: 8px 0 4px;">User UUID (X-Dev-User; backend needs DEV_AUTH=true)</label>
-          <input id="connectUserInput" class="console-select" type="text" style="width: 100%;"
-                 placeholder="00000000-0000-4000-8000-000000000001" autocomplete="off" spellcheck="false">
-          <label class="micro-cap" for="connectProjectInput" style="display:block; margin: 10px 0 4px;">Project UUID (job submission scope)</label>
-          <input id="connectProjectInput" class="console-select" type="text" style="width: 100%;"
-                 placeholder="00000000-0000-4000-8000-000000000002" autocomplete="off" spellcheck="false">
-          <p class="micro-cap" style="margin-top: 10px; opacity: 0.75;">
-            Create both via POST /v1/projects (docs at /docs), then paste the IDs here.
-            Stored in this browser only. Leave empty to run unauthenticated.
-          </p>
+        <p class="micro-cap" style="margin-bottom: 10px; opacity: 0.85; line-height: 1.6;">
+          Connect tells the console <strong>where the backend lives</strong> and
+          <strong>who you are</strong>. Live jobs need both; without them the
+          console runs on built-in demo data.
+        </p>
+        <div id="connectStatus" class="connect-status" role="status">Checking…</div>
+        <div class="connect-actions">
+          <button id="connectScanBtn" class="button-ghost button-ghost-sm" title="Probe localhost ports for a live /v1 API">🔍 Find backend automatically</button>
+          <button id="connectDemoBtn" class="button-ghost button-ghost-sm" title="Create a demo user + project on a DEV_AUTH backend">⚡ One-click demo session</button>
         </div>
+        <details class="connect-advanced">
+          <summary>Advanced — type the values by hand</summary>
+          <div class="hairline-card" style="margin: 8px 0 14px;">
+            <span class="micro-cap" style="display: block; margin-bottom: 6px;">Backend URL (/v1 API)</span>
+            <input id="connectUrlInput" class="console-select" type="text" style="width: 100%;"
+                   placeholder="http://127.0.0.1:8077" autocomplete="off" spellcheck="false">
+            <p class="micro-cap" style="margin-top: 6px; opacity: 0.75;">
+              Empty resets to default. You can also pass ?backend= URL in the address bar.
+            </p>
+          </div>
+          <div class="hairline-card" style="margin-bottom: 6px;">
+            <span class="micro-cap" style="display: block; margin-bottom: 6px;">Operator identity (local development)</span>
+            <label class="micro-cap" for="connectUserInput" style="display:block; margin: 8px 0 4px;">User UUID (backend needs DEV_AUTH=true)</label>
+            <input id="connectUserInput" class="console-select" type="text" style="width: 100%;"
+                   placeholder="00000000-0000-4000-8000-000000000001" autocomplete="off" spellcheck="false">
+            <label class="micro-cap" for="connectProjectInput" style="display:block; margin: 10px 0 4px;">Project UUID (job submission scope)</label>
+            <input id="connectProjectInput" class="console-select" type="text" style="width: 100%;"
+                   placeholder="00000000-0000-4000-8000-000000000002" autocomplete="off" spellcheck="false">
+            <p class="micro-cap" style="margin-top: 10px; opacity: 0.75;">
+              Stored in this browser only. Leave empty to run unauthenticated.
+            </p>
+            <label class="micro-cap" style="display: flex; gap: 6px; align-items: center; margin-top: 8px; cursor: pointer;">
+              <input id="connectAutoDemo" type="checkbox" checked> Start a demo session automatically when the backend allows it
+            </label>
+          </div>
+        </details>
       </div>
       <div class="modal-footer">
+        <button id="connectResetBtn" class="button-ghost button-ghost-subtle button-ghost-sm" title="Forget the saved backend URL, identity and project, then reload">Reset saved</button>
         <button id="connectClearBtn" class="button-ghost button-ghost-subtle button-ghost-sm">Clear</button>
         <button id="connectSaveBtn" class="button-ghost button-ghost-sm">Save &amp; Reconnect</button>
       </div>
@@ -594,11 +691,11 @@
        SCRIPTS
        ═══════════════════════════════════════════════════════════════ -->
 
-  <script src="js/api.js?v=14"></script>
-  <script src="js/sentinel-sim.js?v=14"></script>
-  <script src="js/metrics-charts.js?v=14"></script>
-  <script src="js/three-env.js?v=14"></script>
-  <script src="js/app.js?v=14"></script>
+  <script src="js/api.js?v=17"></script>
+  <script src="js/sentinel-sim.js?v=16"></script>
+  <script src="js/metrics-charts.js?v=16"></script>
+  <script src="js/three-env.js?v=16"></script>
+  <script src="js/app.js?v=17"></script>
 
   <!-- Three.js as ES module — imports, creates environment, signals ready -->
   <script type="module">

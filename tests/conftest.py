@@ -580,6 +580,7 @@ class FakeDB:
 def fake_db(monkeypatch):
     """Patch backend.db with an in-memory fake and expose its handle."""
     import backend.db as db_mod
+    from backend.config import get_settings
 
     fake = FakeDB()
     fake.add_model("bicubic_4x")
@@ -587,4 +588,29 @@ def fake_db(monkeypatch):
     fake.add_model("opensr_ldsrs2", "esa-opensr")
     monkeypatch.setattr(db_mod, "query", fake.query)
     monkeypatch.setattr(db_mod, "execute", fake.execute)
+
+    class _FakeSession:
+        def query(self, sql, params=None, *, one=False):
+            return fake.query(sql, params, one=one)
+
+        def execute(self, sql, params=None):
+            return fake.execute(sql, params)
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _fake_transaction():
+        yield _FakeSession()
+
+    monkeypatch.setattr(db_mod, "transaction", _fake_transaction)
+    # Force offline mode so routers never hit the real pool via .env DSN.
+    monkeypatch.setenv("SUPABASE_DB_URL", "")
+    try:
+        get_settings.cache_clear()
+    except AttributeError:
+        pass
     yield fake
+    try:
+        get_settings.cache_clear()
+    except AttributeError:
+        pass

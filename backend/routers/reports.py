@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from backend import db
 from backend.auth import get_current_user, require_project_role
-from backend.errors import ApiError, JOB_CONFLICT
+from backend.errors import ApiError, JOB_CONFLICT, NOT_FOUND
 from backend.schemas import ReportOut
 
 router = APIRouter(prefix="/v1/reports", tags=["reports"])
@@ -27,9 +27,11 @@ async def get_report(report_id: str, user: dict = Depends(get_current_user)) -> 
         one=True,
     )
     if report is None:
-        raise ApiError(JOB_CONFLICT, "report not found", 404)
+        raise ApiError(NOT_FOUND, "report not found", 404)
     job = db.query("select project_id from jobs where id = %s",
                    (report["job_id"],), one=True)
+    if job is None:
+        raise ApiError(NOT_FOUND, "parent job not found", 404)
     require_project_role(user, job["project_id"],
                          ["owner", "operator", "reviewer", "viewer"])
     return ReportOut(

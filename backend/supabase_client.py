@@ -26,16 +26,20 @@ def upload_file(bucket: str, key: str, path: str | Path) -> None:
     """Upload an immutable object, treating an existing object as idempotent."""
     settings = get_settings()
     if not settings.supabase_url:
-        return
+        raise ApiError(ARTIFACT_WRITE_FAILED, "Supabase Storage is not configured", 503)
     try:
-        response = httpx.post(
-            f"{settings.storage_url}/object/{bucket}/{key}",
-            headers={**_headers(), "content-type": "application/octet-stream", "x-upsert": "true"},
-            content=Path(path).read_bytes(),
-            timeout=120.0,
-        )
-    except httpx.HTTPError as exc:
-        raise ApiError(ARTIFACT_WRITE_FAILED, "Supabase Storage is unreachable", 503) from exc
+        with open(path, "rb") as fh:
+            try:
+                response = httpx.post(
+                    f"{settings.storage_url}/object/{bucket}/{key}",
+                    headers={**_headers(), "content-type": "application/octet-stream", "x-upsert": "true"},
+                    content=fh,
+                    timeout=120.0,
+                )
+            except httpx.HTTPError as exc:
+                raise ApiError(ARTIFACT_WRITE_FAILED, "Supabase Storage is unreachable", 503) from exc
+    except OSError as exc:
+        raise ApiError(ARTIFACT_WRITE_FAILED, f"cannot read artifact file: {exc}", 500) from exc
     if response.status_code not in (200, 201):
         raise ApiError(ARTIFACT_WRITE_FAILED,
                        f"Storage upload failed with HTTP {response.status_code}", 502)

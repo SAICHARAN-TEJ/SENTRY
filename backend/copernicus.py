@@ -15,7 +15,6 @@ cloud cover, CRS and footprint — everything downstream provenance expects.
 from __future__ import annotations
 
 import hashlib
-import hashlib
 import io
 import re
 import zipfile
@@ -141,7 +140,10 @@ def search_products(aoi_wkt: str, start: str, end: str,
     """
     if "POLYGON" not in aoi_wkt.upper():
         raise ApiError(INVALID_AOI, "aoi_wkt must be a POLYGON WKT in EPSG:4326")
-    top = max(1, min(int(top), 100))
+    try:
+        top = max(1, min(int(top), 100))
+    except (TypeError, ValueError) as exc:
+        raise ApiError(INVALID_AOI, f"invalid top parameter: {top}") from exc
 
     query = {
         "$filter": " and ".join([
@@ -329,7 +331,10 @@ def extract_bands(safe_zip_path: str) -> dict[str, bytes]:
 
 def ingest_product(product: CatalogProduct, safe_zip_path: str) -> dict:
     """Extract bands to local storage and register scene + band rows idempotently."""
-    import rasterio
+    try:
+        import rasterio
+    except ImportError as exc:
+        raise ApiError(DATA_CORRUPT, "rasterio is required to stage scenes", 500) from exc
 
     bands = extract_bands(safe_zip_path)
     root = get_settings().artifact_root
@@ -420,4 +425,7 @@ def search_and_ingest(aoi_wkt: str, start: str, end: str,
         except ApiError as exc:
             results.append({"product": product.name, "status": "failed",
                             "error": {"code": exc.code, "message": exc.message}})
+        except Exception as exc:  # noqa: BLE001 - per-product isolation
+            results.append({"product": product.name, "status": "failed",
+                            "error": {"code": DATA_CORRUPT, "message": f"ingest failed: {exc}"}})
     return results

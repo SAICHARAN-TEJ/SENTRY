@@ -20,13 +20,17 @@ def write_cog(path: str | Path, array: np.ndarray, crs: str, transform: list,
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
     # GDAL order [a, b, c, d, e, f] -> Affine(a, b, c, d, e, f)
-    a, b, c, d, e, f = (transform + [0, 0, 0])[:6]
+    # Accept list, tuple, or ndarray; reject None with a clear error.
+    if transform is None:
+        raise ValueError("transform is required")
+    t = list(transform) + [0, 0, 0]
+    a, b, c, d, e, f = t[:6]
     aff = Affine(a, b, c, d, e, f)
     _, h, w = array.shape
 
     with rasterio.open(
         str(path), "w", driver="GTiff", height=h, width=w, count=array.shape[0],
-        dtype="float32", crs=crs, transform=aff, nodata=nodata,
+        dtype="float32", crs=crs or None, transform=aff, nodata=nodata,
         compress="LZW", tiled=True, blockxsize=256, blockysize=256,
     ) as dst:
         for i in range(array.shape[0]):

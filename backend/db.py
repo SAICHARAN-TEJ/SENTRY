@@ -76,14 +76,17 @@ def query(sql: str, params: Any = None, *, one: bool = False) -> Any:
     ``one=True`` returns a single dict or ``None``; otherwise a list of dicts.
     The return type is intentionally ``Any``-compatible so strict checkers treat
     each call site by its ``one=`` flag (runtime type is exactly as documented).
+    Commits after fetch so INSERT...RETURNING callers never silently roll back.
     """
     with get_pool().connection() as conn:
         conn.row_factory = psycopg.rows.dict_row
         with conn.cursor() as cur:
             cur.execute(sql, params)
             if cur.description is None:  # statement returned no rows
+                conn.commit()
                 return None
             rows: list[dict] = cur.fetchall()
+        conn.commit()
     if one:
         return rows[0] if rows else None
     return rows

@@ -67,9 +67,10 @@ def main(argv: list[str] | None = None) -> int:
     target = dest_dir / CHECKPOINT
     url = f"{HF_BASE}/{CHECKPOINT}"
 
-    if target.exists():
+    if target.exists() and target.stat().st_size > 0:
         digest = sha256_file(target)
         print(f"EXISTS   {target} sha256={digest}")
+        print("Verify against SOURCES.md; delete and re-run to re-fetch on mismatch.")
         return 0
 
     print(f"FETCH    {url}")

@@ -47,7 +47,7 @@ async def search_scenes(
     if max_cloud is not None:
         clauses.append("(s.cloud_pct is null or s.cloud_pct <= %s)")
         params.append(max_cloud)
-    params.append(min(limit, 500))
+    params.append(min(max(limit, 1), 500))
 
     rows = db.query(
         f"""

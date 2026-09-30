@@ -64,10 +64,17 @@ async def create_validation(body: ValidationCreate,
                 "select id, overall_status, score, evaluation_grid_m, status, protocol_version "
                 "from validation_runs where id = %s",
                 (existing["id"],), one=True)
+            metrics = tx.query(
+                """
+                select metric_name as name, band, value, threshold, pass
+                from validation_metrics where validation_run_id = %s
+                """,
+                (existing["id"],),
+            ) or []
             return ValidationOut(
                 id=run["id"], overall_status=run.get("overall_status"),
                 score=run.get("score"), evaluation_grid_m=run["evaluation_grid_m"],
-                metrics=[], uncertainty=None, protocol=run["protocol_version"],
+                metrics=metrics, uncertainty=None, protocol=run["protocol_version"],
                 status=run["status"],
             )
 
@@ -184,6 +191,8 @@ async def get_validation(validation_id: str,
         raise ApiError(NOT_FOUND, "validation not found", 404)
     job = db.query("select project_id from jobs where id = %s",
                    (run["job_id"],), one=True)
+    if job is None:
+        raise ApiError(NOT_FOUND, "parent job not found", 404)
     require_project_role(user, job["project_id"],
                          ["owner", "operator", "reviewer", "viewer"])
 

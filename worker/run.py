@@ -33,8 +33,9 @@ from backend.queue import (complete_job_step, set_job_status, skip_job_step,
 from backend.validation import engine, runner as validation_runner
 from worker import baselines, rasterio_io, tiling
 from worker import preprocess as preprocess_mod
-from worker.job_outputs import (build_run_metadata, write_previews,
-                                write_run_metadata)
+from worker.job_outputs import (build_run_metadata, write_observation_preview,
+                                write_previews, write_residual_preview,
+                                write_run_metadata, write_uncertainty_preview)
 from worker.registry import MODEL_REGISTRY
 
 log = logging.getLogger("sentry.worker")
@@ -279,11 +280,29 @@ def run(job: dict) -> list[dict]:
         raise
     except Exception as exc:  # noqa: BLE001 - crash containment with GPU-OOM mapping
         msg = str(exc)
-        code = "GPU_OOM" if ("out of memory" in msg.lower() or "cuda" in msg.lower()) \
-            else DATA_CORRUPT
+        # Only genuine allocator failures map to GPU_OOM: any message merely
+        # mentioning "cuda" (device probes, driver hints) is corrupt-input.
+        code = "GPU_OOM" if "out of memory" in msg.lower() else DATA_CORRUPT
         _fail(job, code, msg)
         raise
     return arts
+
+
+def _advanced_knobs(job_id: str) -> dict:
+    """Per-job overrides stored by POST /v1/jobs (role='advanced_knobs')."""
+    row = db.query(
+        """
+        select object_key_snapshot from job_inputs
+        where job_id = %s and role = 'advanced_knobs' limit 1
+        """,
+        (job_id,), one=True)
+    if row is None or not row.get("object_key_snapshot"):
+        return {}
+    try:
+        data = json.loads(row["object_key_snapshot"])
+        return data if isinstance(data, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def _fail(job: dict, code: str, message: str) -> None:
@@ -424,7 +443,13 @@ def _model_name(job: dict) -> str:
     row = db.query("select name from model_versions where id = %s",
                    (job.get("model_version_id"),), one=True) \
         if job.get("model_version_id") else None
-    return row["name"] if row else "bicubic_4x"
+    if row and row.get("name"):
+        return row["name"]
+    if job.get("model_version_id"):
+        from backend.errors import MODEL_UNAVAILABLE
+        raise ApiError(MODEL_UNAVAILABLE,
+                       f"model version {job.get('model_version_id')} not found")
+    return "bicubic_4x"
 
 
 def _stitch_sr(sr_tiles: list[dict], shape: tuple, scale: int) -> np.ndarray:
@@ -461,9 +486,25 @@ def _upscale_weight(weight: Any, scale: int) -> Any:
 
 
 def _sr_weight(tile: dict, scale: int) -> np.ndarray | None:
-    """Feather weights multiplied by the upscaled valid-data mask."""
+    """Feather weights multiplied by the upscaled valid-data mask (nearest-neighbor)."""
+    from skimage.transform import resize as _resize
+
     feather = _upscale_weight(tile.get("weight"), scale)
-    valid = _upscale_weight(tile.get("valid", np.ones(tile["pixels"].shape[1:])), scale)
+    raw_valid = tile.get("valid", np.ones(tile["pixels"].shape[1:]))
+    # Validity is boolean: nearest-neighbor (order=0) preserves hard edges;
+    # bilinear would leak invalid pixels into the stitch.
+    arr = np.asarray(raw_valid)
+    if arr.dtype != bool:
+        valid = _resize(arr.astype(np.float32),
+                        (arr.shape[0] * scale, arr.shape[1] * scale),
+                        order=0, anti_aliasing=False,
+                        preserve_range=True).astype(np.float32)
+        valid = (valid > 0.5).astype(np.float32)
+    else:
+        valid = _resize(arr.astype(np.float32),
+                        (arr.shape[0] * scale, arr.shape[1] * scale),
+                        order=0, anti_aliasing=False,
+                        preserve_range=True).astype(np.float32)
     if valid is None:
         return feather
     return valid if feather is None else feather * valid
@@ -502,16 +543,28 @@ def _input_products(job_id: str) -> list[dict]:
 
 
 def _run_reconstruct(job: dict) -> list[dict]:
-    """Run the selected model; write SR + uncertainty; validation must pass."""
+    """Run the selected model; write SR + uncertainty + 5 previews; validate."""
     store = ArtifactStore(job)
     started_utc = datetime.now(timezone.utc).isoformat(timespec="seconds")
     t0 = time.monotonic()
+    knobs = _advanced_knobs(job["id"])
     set_job_status(job["id"], "PREPROCESSING", progress=0.05)
     start_job_step(job["id"], "preprocess")
     frames = _load_scene_frames(job["id"])
+    # frame_max_selected caps temporal frames used (default: all, max 8).
+    try:
+        max_frames = int(knobs.get("frame_max_selected") or 8)
+    except (TypeError, ValueError) as exc:
+        raise ApiError(DATA_CORRUPT,
+                       f"invalid frame_max_selected: {knobs.get('frame_max_selected')}") from exc
+    max_frames = max(1, min(max_frames, 8))
+    if len(frames) > max_frames:
+        frames = frames[:max_frames]
     lr_tiles, frame_tiles, shape, transform, crs = _load_tiles(job, frames)
     complete_job_step(job["id"], "preprocess",
-                      {"mode": "inline", "tiles": len(lr_tiles)})
+                      {"mode": "inline", "tiles": len(lr_tiles),
+                       "frames_used": len(frames),
+                       "advanced_knobs": knobs or None})
 
     start_job_step(job["id"], "reconstruct")
     set_job_status(job["id"], "RECONSTRUCTING", progress=0.2)
@@ -541,9 +594,15 @@ def _run_reconstruct(job: dict) -> list[dict]:
 
     stitched = _stitch_sr(sr_tiles, shape, SCALE)
     _, h, w = shape
-    sr_transform = [transform[0] / SCALE, 0, transform[2], 0, transform[4] / SCALE,
-                    transform[5]]
-    unc = baselines.uncertainty_proxy(stitched)
+    # Scale every pixel-size element, not just the diagonal: hardcoding
+    # b=d=0 would silently shear a rotated grid into north-up.
+    sr_transform = [transform[0] / SCALE, transform[1] / SCALE, transform[2],
+                    transform[3] / SCALE, transform[4] / SCALE, transform[5]]
+    unc_enabled = knobs.get("uncertainty_enabled", True)
+    if unc_enabled is False:
+        unc = np.zeros((1, h * SCALE, w * SCALE), dtype=np.float32)
+    else:
+        unc = baselines.uncertainty_proxy(stitched)
 
     sr_path = store.local_dir("sr-outputs", "sr_output") / "sr.tif"
     rasterio_io.write_cog(sr_path, stitched, crs, sr_transform, BANDS, resolution_m=2.5)
@@ -576,11 +635,41 @@ def _run_reconstruct(job: dict) -> list[dict]:
         "preview_false_color", "previews", previews["preview_false_color.png"]["path"],
         store.object_key("preview_false_color", "preview_false_color.png"),
         media_type="image/png", band_count=3)
+
+    # The comparison view needs the OBSERVED side as pixels too, otherwise one
+    # half of the slider would have to be filled with something that is not the
+    # observation. Invalid pixels render black in every preview.
+    obs_valid = frames[0]["valid"]
+    obs_preview = write_observation_preview(
+        frames[0]["reflectance"], obs_valid,
+        store.local_dir("previews", "preview_observation"))
+    obs_art = store.register(
+        "preview_observation", "previews", obs_preview["path"],
+        store.object_key("preview_observation", "preview_observation.png"),
+        media_type="image/png", band_count=3)
+
+    unc_preview = write_uncertainty_preview(
+        unc, np.ones((h * SCALE, w * SCALE), dtype=bool),
+        store.local_dir("previews", "preview_uncertainty"),
+        caption="auxiliary gradient indicator (visualization)")
+    uncp_art = store.register(
+        "preview_uncertainty", "previews", unc_preview["path"],
+        store.object_key("preview_uncertainty", "preview_uncertainty.png"),
+        media_type="image/png", band_count=3)
+
+    residual_preview = write_residual_preview(
+        stitched, frames[0]["reflectance"],
+        store.local_dir("previews", "preview_residual"), valid=obs_valid)
+    res_art = store.register(
+        "preview_residual", "previews", residual_preview["path"],
+        store.object_key("preview_residual", "preview_residual.png"),
+        media_type="image/png", band_count=3)
+    preview_arts = [rgb_art, fcv_art, obs_art, uncp_art, res_art]
     fc_meta = store.local_dir("previews", "run_metadata") / "run_metadata.json"
     meta_payload = build_run_metadata(
         job, model_name=model_name, crs=crs, transform=sr_transform, grid_m=2.5,
         input_products=_input_products(job["id"]), frame_count=len(frames),
-        sampling_steps=None, runtime_s=time.monotonic() - t0,
+        sampling_steps=knobs.get("sampling_steps"), runtime_s=time.monotonic() - t0,
         started_utc=started_utc)
     write_run_metadata(fc_meta, meta_payload)
     meta_art = store.register(
@@ -592,7 +681,7 @@ def _run_reconstruct(job: dict) -> list[dict]:
         # Pure reconstruct: no validation/report steps exist for this mode.
         _finish_steps(job["id"], ["preprocess", "reconstruct", "uncertainty"])
         set_job_status(job["id"], "COMPLETED", progress=1.0)
-        return [sr_art, unc_art, rgb_art, fcv_art, meta_art]
+        return [sr_art, unc_art, *preview_arts, meta_art]
     set_job_status(job["id"], "VALIDATING", progress=0.7)
 
     # Validation is mandatory for reconstruct_validate jobs; failure fails the job (#8).
@@ -611,7 +700,9 @@ def _run_reconstruct(job: dict) -> list[dict]:
     report_path = store.local_dir("reports", "report_file") / "report.json"
     set_job_status(job["id"], "REPORTING", progress=0.9)
     start_job_step(job["id"], "report")
-    report_path.write_text(json.dumps(summary, indent=2, default=str))
+    # json_safe: engine metrics may hold inf (identical-image PSNR), which
+    # json.dumps renders as non-standard Infinity that strict JSON parsers reject.
+    report_path.write_text(json.dumps(engine.json_safe(summary), indent=2, default=str))
     report_art = store.register(
         "report_file", "reports", report_path,
         store.object_key("report_file", "report.json"),
@@ -627,7 +718,15 @@ def _run_reconstruct(job: dict) -> list[dict]:
     _finish_steps(job["id"], ["preprocess", "reconstruct", "uncertainty",
                                "validate", "report"])
     set_job_status(job["id"], "COMPLETED", progress=1.0)
-    return [sr_art, unc_art, rgb_art, fcv_art, meta_art]
+    # Real detection row for the Alerts tab (best-effort, never fails the job).
+    try:
+        from backend.routers.alerts import create_job_alert  # noqa: PLC0415
+        create_job_alert(job.get("project_id"), job["id"],
+                         summary.get("validation_id"),
+                         summary.get("overall_status"), summary.get("score"))
+    except Exception:  # noqa: BLE001 - alerts must never fail a completed job
+        pass
+    return [sr_art, unc_art, *preview_arts, meta_art]
 
 
 def _observation_for(job: dict, store: ArtifactStore, frames: list[dict]) -> Path:
@@ -839,8 +938,9 @@ def _run_benchmark(job: dict) -> list[dict]:
     custom_m, baseline_m = _score(cus), _score(bic)
     delta = engine.benchmark_delta(custom_m, baseline_m)
 
-    sr_transform = [frames[0]["transform"][0] / SCALE, 0, frames[0]["transform"][2],
-                    0, frames[0]["transform"][4] / SCALE, frames[0]["transform"][5]]
+    _t = frames[0]["transform"]
+    sr_transform = [_t[0] / SCALE, _t[1] / SCALE, _t[2],
+                    _t[3] / SCALE, _t[4] / SCALE, _t[5]]
     p = store.local_dir("benchmarks", "benchmark_output") / "benchmark.json"
     p.write_text(json.dumps({
         "models": {"custom": custom_m, "bicubic": baseline_m},

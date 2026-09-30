@@ -20,43 +20,64 @@ def register_scene(provider_product_id: str, band_object_keys: dict[str, str],
     Identity = (dataset_source, provider_product_id); band rows are refreshed
     on re-registration so object keys/checksums stay current.
     """
-    source = db.query(
-        "select id from dataset_sources where name = %s and version = %s",
-        (source_name, source_version), one=True)
-    if source is None:
-        source = db.query(
-            """
-            insert into dataset_sources (name, version, source_type, provider, uri)
-            values (%s, %s, 'satellite-l2a', 'copernicus',
-                    'https://dataspace.copernicus.eu')
-            returning id
-            """,
-            (source_name, source_version), one=True)
-
-    scene = db.query(
-        """
-        insert into scenes (dataset_source_id, provider_product_id, sensing_time,
-                             ingest_status, crs, resolution_m, footprint, cloud_pct)
-        values (%s, %s, %s, 'ready', %s, %s, ST_GeomFromText(%s, 4326), %s)
-        on conflict (dataset_source_id, provider_product_id) do update
-            set sensing_time = excluded.sensing_time,
-                cloud_pct = excluded.cloud_pct,
-                ingest_status = 'ready'
-        returning id
-        """,
-        (source["id"], provider_product_id, sensing_time, crs, resolution_m,
-         footprint_wkt_4326, cloud_pct), one=True)
-
-    db.execute("delete from scene_bands where scene_id = %s", (scene["id"],))
-    band_ids = []
+    if not provider_product_id or not footprint_wkt_4326:
+        from backend.errors import ApiError, INVALID_AOI
+        raise ApiError(INVALID_AOI, "provider_product_id and footprint are required", 400)
     for band in BANDS:
-        row = db.query(
-            """
-            insert into scene_bands (scene_id, band_name, native_resolution_m,
-                                    object_key, scale_factor, dtype)
-            values (%s, %s, %s, %s, 0.0001, 'uint16') returning id
-            """,
-            (scene["id"], band, resolution_m, band_object_keys.get(band)), one=True)
-        band_ids.append(row["id"])
+        if not band_object_keys.get(band):
+            from backend.errors import ApiError, DATA_CORRUPT
+            raise ApiError(DATA_CORRUPT, f"missing object key for band {band}", 500)
+    with db.transaction() as tx:
+        source = tx.query(
+            "select id from dataset_sources where name = %s and version = %s",
+            (source_name, source_version), one=True)
+        if source is None:
+            source = tx.query(
+                """
+                insert into dataset_sources (name, version, source_type, provider, uri)
+                values (%s, %s, 'satellite-l2a', 'copernicus',
+                        'https://dataspace.copernicus.eu')
+                returning id
+                """,
+                (source_name, source_version), one=True)
 
-    return {"scene_id": scene["id"], "band_ids": band_ids}
+        if source is None or not source.get("id"):
+            from backend.errors import ApiError, DATA_CORRUPT
+            raise ApiError(DATA_CORRUPT, "failed to resolve dataset source", 500)
+        try:
+            scene = tx.query(
+                """
+                insert into scenes (dataset_source_id, provider_product_id, sensing_time,
+                                     ingest_status, crs, resolution_m, footprint, cloud_pct)
+                values (%s, %s, %s, 'ready', %s, %s, ST_GeomFromText(%s, 4326), %s)
+                on conflict (dataset_source_id, provider_product_id) do update
+                    set sensing_time = excluded.sensing_time,
+                        cloud_pct = excluded.cloud_pct,
+                        ingest_status = 'ready'
+                returning id
+                """,
+                (source["id"], provider_product_id, sensing_time, crs, resolution_m,
+                 footprint_wkt_4326, cloud_pct), one=True)
+        except Exception as exc:
+            from backend.errors import ApiError, INVALID_AOI
+            raise ApiError(INVALID_AOI, f"invalid footprint WKT: {exc}", 400) from exc
+
+        if scene is None or not scene.get("id"):
+            from backend.errors import ApiError, DATA_CORRUPT
+            raise ApiError(DATA_CORRUPT, "failed to register scene", 500)
+        tx.execute("delete from scene_bands where scene_id = %s", (scene["id"],))
+        band_ids = []
+        for band in BANDS:
+            row = tx.query(
+                """
+                insert into scene_bands (scene_id, band_name, native_resolution_m,
+                                        object_key, scale_factor, dtype)
+                values (%s, %s, %s, %s, 0.0001, 'uint16') returning id
+                """,
+                (scene["id"], band, resolution_m, band_object_keys.get(band)), one=True)
+            if row is None or not row.get("id"):
+                from backend.errors import ApiError, DATA_CORRUPT
+                raise ApiError(DATA_CORRUPT, f"failed to register band {band}", 500)
+            band_ids.append(row["id"])
+
+        return {"scene_id": scene["id"], "band_ids": band_ids}

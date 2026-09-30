@@ -28,6 +28,9 @@ _active_claims: dict[str, str] = {}
 def set_active_claim(job_id: str, claim_token: str | None) -> None:
     """Register the current worker's claim token for fenced transitions."""
     if claim_token:
+        # Bound memory: evict oldest entries if a crashed worker leaks claims.
+        if len(_active_claims) > 1000 and job_id not in _active_claims:
+            _active_claims.pop(next(iter(_active_claims)), None)
         _active_claims[job_id] = claim_token
 
 
@@ -214,7 +217,7 @@ def set_job_status(job_id: str, status: str, *, claim_token: str | None = None,
     if status in {"FAILED", "CANCELLED"}:
         allowed = True
     elif status == "COMPLETED":
-        allowed = current in {"PREPROCESSING", "UNCERTAINTY", "REPORTING"}
+        allowed = current in {"PREPROCESSING", "RECONSTRUCTING", "UNCERTAINTY", "VALIDATING", "REPORTING"}
     else:
         allowed = current in VALID_ORDER and VALID_ORDER.index(status) > VALID_ORDER.index(current)
     if not allowed:

@@ -61,8 +61,8 @@ def main() -> int:
     print(f"[4] stitched: {stitched.shape}")
 
     # 5. Write COGs (SR, uncertainty, observation).
-    t10 = scene["transform"]
-    t25 = [t10[0] / 4, 0, t10[2], 0, t10[4] / 4, t10[5]]
+    t10 = list(scene["transform"])
+    t25 = [t10[0] / 4, t10[1] / 4, t10[2], t10[3] / 4, t10[4] / 4, t10[5]]
     sr_path = out_dir / "sr.tif"
     rasterio_io.write_cog(sr_path, stitched, scene["crs"], t25, BANDS, resolution_m=2.5)
     unc_path = out_dir / "uncertainty.tif"
@@ -79,13 +79,13 @@ def main() -> int:
     assert back["crs"] == scene["crs"], f"CRS lost: {back['crs']}"
     assert list(back["band_names"]) == BANDS, back["band_names"]
     assert back["width"] == w * 4 and back["height"] == h * 4
+    assert np.allclose(back["array"], stitched, equal_nan=True), "COG roundtrip data mismatch"
     print(f"    roundtrip ok: crs={back['crs']} bands={back['band_names']}")
 
     # 6. Validation Engine: observation consistency (D) + spectral sanity (C)
     #    + uncertainty quality (F) + decision.
-    obs = np.moveaxis(back["array"], 0, -1) if False else pre["reflectance"]
     obs_bhwc = np.moveaxis(pre["reflectance"], 0, -1)
-    sr_bhwc = np.moveaxis(stitched, 0, -1)
+    sr_bhwc = np.moveaxis(back["array"], 0, -1)
     geo_sr = {"crs": scene["crs"], "transform": t25, "width": w * 4, "height": h * 4,
               "bounds": rasterio_io.read_raster(sr_path)["bounds"]}
     geo_obs = {"crs": scene["crs"], "transform": t10, "width": w, "height": h,
@@ -99,9 +99,10 @@ def main() -> int:
     print(f"[6] validation: obs_rmse={oc['rmse_mean']:.5f} sam={spec['sam']:.4f} "
           f"unc_mean={uncq['mean']:.4f} coverage={uncq['coverage']:.3f}")
 
-    # 7. Decision (no reference in smoke mode; geometric A on SR vs obs grid
-    #    uses pixel-grid equality of the observation copy, which matches by construction).
-    geo_check = engine.check_geometric(geo_obs, geo_obs)
+    # 7. Decision (no reference in smoke mode; geometric A checks SR grid
+    #    against the expected 2.5 m grid derived from the 10 m observation).
+    expected_sr = engine.expected_sr_georef(geo_obs, scale=4)
+    geo_check = engine.check_geometric(geo_sr, expected_sr)
     decision = engine.decide_overall_status(geo_check, {
         "observation_rmse": oc["rmse_mean"],
         "used_reference": False,

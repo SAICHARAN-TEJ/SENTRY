@@ -12,8 +12,12 @@ import os
 
 import pytest
 
+def _has_db_url() -> bool:
+    return bool(os.environ.get("SUPABASE_DB_URL"))
+
+
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("SUPABASE_DB_URL"),
+    not _has_db_url(),
     reason="needs live Supabase DB (SUPABASE_DB_URL)",
 )
 

@@ -26,7 +26,7 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=settings.cors_origin_list,
             allow_credentials=True,
-            allow_methods=["GET", "POST"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=["Authorization", "Content-Type", "X-Dev-User"],
         )
 
@@ -55,20 +55,31 @@ def create_app() -> FastAPI:
         except Exception:  # noqa: BLE001 - health must never raise
             db_ok = False
         storage_ok = False
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.head(settings.storage_url)
-                storage_ok = resp.status_code < 500
-        except Exception:  # noqa: BLE001
-            storage_ok = False
+        if settings.storage_url:
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.head(settings.storage_url)
+                    # The storage root answers 4xx to HEAD when reachable but
+                    # unauthenticated; only 2xx means a healthy service.
+                    storage_ok = 200 <= resp.status_code < 300
+            except Exception:  # noqa: BLE001
+                storage_ok = False
         return HealthOut(status="ok", db=db_ok, storage=storage_ok,
-                         protocol_version=settings.validation_protocol_version)
+                         artifacts=settings.artifact_store_mode,
+                         protocol_version=settings.validation_protocol_version,
+                         dev_auth=settings.dev_auth)
 
-    from backend.routers import (aois, artifacts, copernicus, jobs, models,  # noqa: PLC0415
+    from backend.routers import (alerts, aois, artifacts, copernicus, jobs, models,  # noqa: PLC0415
                                  projects, reports, scenes, validations)
+
+    if settings.dev_auth:  # local-dev only: absent entirely in production
+        from backend.routers import dev_session  # noqa: PLC0415
+
+        app.include_router(dev_session.router)
 
     app.include_router(projects.router)
     app.include_router(aois.router)
+    app.include_router(alerts.router)
     app.include_router(copernicus.router)
     app.include_router(scenes.router)
     app.include_router(jobs.router)

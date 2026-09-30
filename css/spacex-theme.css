@@ -132,6 +132,20 @@ body {
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 150ms;
   --duration-normal: 250ms;
+  --duration-slow: 450ms;
+
+  /* ── Aliases consumed by console.css (single source of truth above) ── */
+  --hairline: var(--hairline-on-dark);
+  --hairline-strong: var(--hairline-active);
+  --canvas-inset: #060608;
+  --canvas-deep: #000000;
+  --ink-bright: #ffffff;
+  --signal-ready: var(--accent-teal);
+  --signal-alert: var(--accent-rose);
+  --signal-running: var(--accent-gold);
+  --glass-blur: blur(14px);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --glass-shadow-lg: 0 16px 64px rgba(0, 0, 0, 0.6);
 }
 
 /* ── TYPOGRAPHY CLASSES ───────────────────────────────────────────── */
@@ -323,6 +337,156 @@ body {
   background: currentColor;
   flex-shrink: 0;
 }
+
+.chip.neutral {
+  color: var(--ink-mute);
+  border-color: var(--hairline-on-dark);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.chip.neutral::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+/* Pulsing "work in progress" state (job running, pipeline stage active) */
+@keyframes chipPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.chip.is-pulsing { animation: chipPulse 1.1s ease-in-out infinite; }
+
+/* ── GUIDED RUN STEPPER ───────────────────────────────────────────── */
+.run-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.run-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px 5px 6px;
+  font-family: var(--font-caps);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--hairline-subtle);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color var(--duration-fast), border-color var(--duration-fast);
+}
+
+.run-step:hover { color: var(--ink-primary); border-color: var(--hairline-active); }
+
+.run-step .step-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline-active);
+  font-size: 10px;
+  font-style: normal;
+  flex-shrink: 0;
+}
+
+.run-step.done { color: var(--accent-teal); border-color: rgba(16, 185, 129, 0.4); }
+.run-step.done .step-dot { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.5); }
+.run-step.current { color: var(--ink-white); border-color: var(--hairline-white); }
+.run-step.current .step-dot { background: rgba(255, 255, 255, 0.12); }
+.run-step.blocked { opacity: 0.55; cursor: not-allowed; }
+
+.run-step-sep { color: var(--ink-faint); font-size: 11px; user-select: none; }
+
+/* ── CONNECT DIALOG STATUS ────────────────────────────────────────── */
+.connect-status {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--canvas-inset);
+  color: var(--ink-mute);
+  margin-bottom: 14px;
+  word-break: break-all;
+}
+
+.connect-status .ok { color: var(--accent-teal); }
+.connect-status .bad { color: var(--accent-rose); }
+.connect-status .warn { color: var(--accent-gold); }
+
+.connect-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+
+details.connect-advanced { margin-bottom: 6px; }
+details.connect-advanced > summary {
+  cursor: pointer;
+  font-family: var(--font-caps);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  padding: 6px 0;
+}
+details.connect-advanced > summary:hover { color: var(--ink-primary); }
+
+/* ── 3D TERRAIN CONTROLS ──────────────────────────────────────────── */
+.terrain-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.015);
+  font-family: var(--font-caps);
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.terrain-controls label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.terrain-controls label:hover { color: var(--ink-primary); }
+.terrain-controls input[type="checkbox"] { accent-color: #38bdf8; }
+.terrain-controls input[type="range"] { width: 110px; accent-color: #38bdf8; }
+
+#terrainStatus { text-transform: none; letter-spacing: 0; font-family: var(--font-mono); font-size: 11px; }
+
+/* Terrain poster shown while WebGL/textures load */
+.map-canvas-container.terrain-poster .srm-canvas-stage {
+  background: #05070c url('../assets/terrain_diffuse.jpg') center / cover no-repeat;
+}
+
+/* Docked-3D state lives on the canvas container (set by app.js) */
+.map-canvas-container.mode-3d-active .srm-canvas-stage { min-height: 420px; }
+.map-canvas-container.mode-3d-active canvas.docked { width: 100% !important; height: 100% !important; }
+
+/* Header clock */
+#utcClock {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-mute);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+#utcClock::after { content: ' Z'; color: var(--ink-faint); font-size: 10px; }
 
 /* ── SCROLLBAR ────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }

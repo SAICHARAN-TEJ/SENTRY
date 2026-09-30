@@ -37,11 +37,14 @@ def _read_raster(path: str | Path) -> dict:
             georef = {
                 "crs": src.crs.to_string() if src.crs else "",
                 "transform": [src.transform.a, src.transform.b, src.transform.c,
-                              src.transform.d, src.transform.e, src.transform.f],
+                               src.transform.d, src.transform.e, src.transform.f],
                 "width": src.width,
                 "height": src.height,
                 "bounds": list(src.bounds),
-                "band_names": list(src.descriptions or ["B02", "B03", "B04", "B08"]),
+                "band_names": ([d or f"B{i + 1:02d}"
+                                for i, d in enumerate(src.descriptions)]
+                               if src.descriptions
+                               else ["B02", "B03", "B04", "B08"]),
                 "nodata": src.nodata,
             }
     except ApiError:
@@ -103,22 +106,34 @@ def run_validation(job_id: str, paths: dict[str, Any]) -> dict:
     """
     settings = get_settings()
     for key in ("sr", "uncertainty", "observation"):
-        p = Path(paths[key])
-        if not p.exists():
+        p = paths.get(key)
+        if not p or not Path(p).exists():
             raise ApiError(DATA_CORRUPT, f"missing input raster: {key} ({p})")
 
     sr = _read_raster(paths["sr"])
     unc_r = _read_raster(paths["uncertainty"])
     obs = _read_raster(paths["observation"])
     ref = _read_raster(paths["reference"]) if paths.get("reference") else None
+    if ref is not None and ref["array"].shape[2] != sr["array"].shape[2]:
+        raise ApiError(DATA_CORRUPT,
+                       "reference/SR band count mismatch: "
+                       f"{ref['array'].shape[2]} vs {sr['array'].shape[2]}")
 
     # Component A: SR must sit on the expected 2.5 m grid derived from the S2 grid.
     expected = engine.expected_sr_georef(obs["georef"], scale=4)
     geoms = engine.check_geometric(sr["georef"], expected)
 
-    unc = unc_r["array"][..., 0]
-    if unc.ndim == 3:  # (1, H, W) single-band
-        unc = unc[0]
+    unc_arr = unc_r["array"]
+    # Normalize (H, W), (H, W, 1), or (1, H, W) single-band to (H, W); multi-band takes band 0.
+    if unc_arr.ndim == 3:
+        if unc_arr.shape[2] == 1:
+            unc = unc_arr[..., 0]
+        elif unc_arr.shape[0] == 1 and unc_arr.shape[2] != 1:
+            unc = unc_arr[0]
+        else:
+            unc = unc_arr[..., 0]
+    else:
+        unc = unc_arr
     obs_res = engine.observation_consistency(sr["array"], obs["array"],
                                              valid_mask=obs["valid_mask"])
 
@@ -135,9 +150,14 @@ def run_validation(job_id: str, paths: dict[str, Any]) -> dict:
         ref_metrics = agree["metrics"]
         ref_coverage = float(valid.mean())
 
+    # The uncertainty raster is mandatory evidence: a reconstruction that was
+    # never quantified cannot pass the gate. ``uncertainty_present`` is derived
+    # from the raster we actually read, not from the caller's intent.
+    uncertainty_present = bool(unc.size) and bool(np.isfinite(unc).any())
     unc_res = engine.uncertainty_quality(
         unc, sr["array"], ref["array"] if ref else None,
-        valid_mask=valid if ref is not None else None)
+        valid_mask=valid if ref is not None else None,
+        uncertainty_kind=paths.get("uncertainty_kind"))
 
     metrics_for_decision: dict = {
         "observation_rmse": obs_res["rmse_mean"],
@@ -149,8 +169,17 @@ def run_validation(job_id: str, paths: dict[str, Any]) -> dict:
         "ref_coverage": ref_coverage,
         "error_correlation": unc_res.get("error_correlation"),
         "valid_coverage": obs_res.get("valid_coverage"),
+        "uncertainty_present": uncertainty_present,
+        "uncertainty_coverage": unc_res.get("coverage"),
+        "uncertainty_kind": unc_res.get("uncertainty_kind"),
+        "uncertainty_p95": unc_res.get("p95"),
+        "calibration_status": unc_res.get("calibration_status"),
+        "calibration_reason": unc_res.get("calibration_reason"),
     }
-    decision = engine.decide_overall_status(geoms, metrics_for_decision)
+    decision = engine.quality_gate(geoms, metrics_for_decision)
+    decision["failure_modes"] = engine.classify_failure_modes(
+        metrics_for_decision, decision["checks"],
+        context=paths.get("frame_context") or {})
 
     if settings.supabase_db_url:
         return _persist(job_id, paths, sr, obs_res, unc_res, ref_metrics,
@@ -200,6 +229,12 @@ def _persist(job_id: str, paths: dict, sr: dict, obs_res: dict, unc_res: dict,
                 "uncertainty_mean": unc_res["mean"],
                 "uncertainty_p95": unc_res["p95"],
             }
+            corr = unc_res.get("error_correlation")
+            if corr is not None:
+                all_metrics["uncertainty_error_correlation"] = corr
+            mono = (unc_res.get("calibration") or {}).get("decile_rank_correlation")
+            if mono is not None:
+                all_metrics["uncertainty_decile_rank_correlation"] = mono
             for b in engine.BANDS:
                 if obs_res["per_band"].get(b, {}).get("rmse") is not None:
                     all_metrics[f"obs_rmse_{b}"] = obs_res["per_band"][b]["rmse"]
@@ -209,13 +244,22 @@ def _persist(job_id: str, paths: dict, sr: dict, obs_res: dict, unc_res: dict,
             for name, value in all_metrics.items():
                 if value is None or not np.isfinite(value):
                     continue
+                # Per-metric pass: threshold-aware when known, else mirrors overall non-FAIL.
+                # Thresholds live in engine.DEFAULT_THRESHOLDS; overall CAUTION keeps
+                # individual metrics honest instead of flattening to pass.
+                checks = (decision.get("checks") or {})
+                check = checks.get(name) if isinstance(checks, dict) else None
+                if isinstance(check, dict) and "passed" in check:
+                    metric_pass = bool(check["passed"])
+                else:
+                    metric_pass = decision["overall_status"] != "FAIL"
                 tx.execute(
                     """
                     insert into validation_metrics
                         (validation_run_id, metric_name, band, value, pass, details)
                     values (%s, %s, null, %s, %s, '{}'::jsonb)
                     """,
-                    (vrun_id, name, float(value), decision["overall_status"] != "FAIL"),
+                    (vrun_id, name, float(value), metric_pass),
                 )
 
             unc_artifact = tx.query(
@@ -263,6 +307,26 @@ def _persist(job_id: str, paths: dict, sr: dict, obs_res: dict, unc_res: dict,
                 "degradation_operator": engine.DEGRADATION_OPERATOR,
                 "overall_status": decision["overall_status"],
                 "score": decision["score"],
+                # A no-reference run withholds its composite score; score_note
+                # explains why, and reasons carries the missing-evidence line
+                # the console and the report display.
+                "score_note": decision.get("score_note"),
+                "reasons": decision.get("reasons"),
+                "checks": decision.get("checks"),
+                "cautions": decision.get("cautions"),
+                "failure_modes": decision.get("failure_modes"),
+                "thresholds_applied": decision.get("thresholds_applied"),
+                "uncertainty": {
+                    "kind": unc_res.get("uncertainty_kind"),
+                    "is_probabilistic": unc_res.get("uncertainty_kind") == "stochastic_sampling_std",
+                    "calibration_status": unc_res.get("calibration_status"),
+                    "calibration_reason": unc_res.get("calibration_reason"),
+                    "reliability_curve": (unc_res.get("calibration") or {}).get("reliability_curve"),
+                    "error_correlation": corr,
+                    "mean": unc_res.get("mean"), "p50": unc_res.get("p50"),
+                    "p90": unc_res.get("p90"), "p95": unc_res.get("p95"),
+                    "coverage": unc_res.get("coverage"),
+                },
                 "metrics": {k: v for k, v in all_metrics.items()},
                 "human_summary": HUMAN_SUMMARY,
                 "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -274,7 +338,9 @@ def _persist(job_id: str, paths: dict, sr: dict, obs_res: dict, unc_res: dict,
                 values (%s, %s)
                 on conflict (validation_run_id) do update set summary_json = excluded.summary_json
                 """,
-                (vrun_id, json.dumps(summary, default=str)),
+                # json_safe: inf/NaN would serialize as non-standard
+                # Infinity/NaN literals that strict JSON parsers reject.
+                (vrun_id, json.dumps(engine.json_safe(summary), default=str)),
             )
             tx.execute(
                 """
@@ -321,10 +387,21 @@ def _local_report(job_id: str, paths: dict, obs_res: dict, unc_res: dict,
         "overall_status": decision["overall_status"],
         "score": decision["score"],
         "evaluation_grid_m": 2.5,
+        "checks": decision.get("checks"),
+        "cautions": decision.get("cautions"),
+        "failure_modes": decision.get("failure_modes"),
+        "score_note": decision.get("score_note"),
+        "reference_note": paths.get("reference_note"),
         "metrics": [
-            {"name": "observation_rmse", "value": obs_res["rmse_mean"], "pass": True},
+            {"name": "observation_rmse", "value": obs_res["rmse_mean"],
+             "pass": decision["overall_status"] != "FAIL"},
         ],
-        "uncertainty": {"mean": unc_res["mean"], "p95": unc_res["p95"]},
+        "uncertainty": {
+            "kind": unc_res.get("uncertainty_kind"),
+            "calibration_status": unc_res.get("calibration_status"),
+            "mean": unc_res["mean"], "p95": unc_res["p95"],
+            "coverage": unc_res["coverage"],
+        },
         "status": "COMPLETED",
         "reasons": decision["reasons"],
     }

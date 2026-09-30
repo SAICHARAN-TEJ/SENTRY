@@ -1,8 +1,17 @@
 .env
+.env.local
+.env.*.local
 .venv
 __pycache__
 *.pyc
 .pytest_cache
+.ruff_cache
 data
 fixtures/output
 .git
+.freebuff/
+third_party/
+*.log
+serve-logs/
+Thumbs.db
+.DS_Store

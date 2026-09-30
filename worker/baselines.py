@@ -39,7 +39,9 @@ def run_opensr(tile_pixels: np.ndarray, checkpoint: str | None = None) -> np.nda
 def _gradient_energy(px: np.ndarray) -> float:
     """Mean Sobel magnitude across bands: sharpness score for frame selection."""
     mags = [np.mean(np.abs(sobel(px[i]))) for i in range(px.shape[0])]
-    return float(np.mean(mags))
+    val = float(np.mean(mags))
+    # NaN frames sort last; never let NaN ordering pick a corrupt frame.
+    return -1.0 if not np.isfinite(val) else val
 
 
 def run_custom_mf(frames: list[np.ndarray], scale: int = 4) -> tuple[np.ndarray, np.ndarray]:
