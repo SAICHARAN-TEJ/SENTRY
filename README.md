@@ -1,28 +1,41 @@
-# SENTRY — Sentinel-2 Super-Resolution with Validation
+# 🛰️ SUBPIXEL-SENTRY
+### *Tactical Land-Cover Intelligence with AI Validation*
 
-SENTRY super-resolves Sentinel-2 imagery from 10 m to 2.5 m per pixel (bands B02, B03, B04, B08),
-then checks whether the result is trustworthy **before anyone is allowed to use it**.
-Model-generated detail is never presented as new observation — the validation step is the point.
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.103+-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15.0+-336791.svg?logo=postgresql)](https://www.postgresql.org/)
+[![Playwright](https://img.shields.io/badge/Tested_with-Playwright-2EAD33.svg?logo=playwright)](https://playwright.dev/)
 
-Built for Smart India Hackathon problem statement SIH26142 (NTRO, Space Technology).
+> **Trust, but verify the AI.** <br>
+> SENTRY super-resolves Sentinel-2 imagery from 10 m to 2.5 m per pixel (bands B02, B03, B04, B08), then mathematically verifies whether the result is trustworthy **before anyone is allowed to use it**. Model-generated detail is never presented as new observation — the validation step is the point.
 
-![SUBPIXEL-SENTRY operator console](assets/console_split_slider.png)
+Built for the **Smart India Hackathon** problem statement SIH26142 (NTRO, Space Technology).
 
-## Run it (Windows, one click)
+---
 
-Double-click **`Start-SENTRY.bat`**. It boots Postgres, the API and the console,
-then opens the console in your browser. `Stop-SENTRY.bat` shuts the servers down.
+## 🎬 Action Demo
+Here's a sped-up look at the SUBPIXEL-SENTRY console in action—from kicking off a job to inspecting the split-slider, metrics, and evidence dossier.
+
+[![Launch Video](brag-output/brag.gif)](brag-output/brag.webm)
+
+*(Click the GIF or [here](brag-output/brag.webm) to watch the full 1-minute UI walkthrough.)*
+
+---
+
+## 🚀 Run it (Windows, One Click)
+
+Double-click **`Start-SENTRY.bat`**. It boots Postgres, the API, and the console, then opens the console in your browser. `Stop-SENTRY.bat` cleanly shuts the servers down.
 
 | Service | Address |
 |---|---|
-| Console | http://127.0.0.1:8080/index.html?backend=http://127.0.0.1:8077 |
-| API + docs | http://127.0.0.1:8077/docs · health at `/v1/health` |
-| Postgres | 127.0.0.1:54322 (`sentry-postgres` container) |
+| **Console** | http://127.0.0.1:8080/index.html?backend=http://127.0.0.1:8077 |
+| **API + Docs** | http://127.0.0.1:8077/docs · health at `/v1/health` |
+| **Postgres** | 127.0.0.1:54322 (`sentry-postgres` container) |
 
-First load hard-refresh once (`Ctrl+Shift+R`) so the latest console scripts load.
-If the page ever looks stale or points at the wrong backend: **Connect… → Reset saved**.
+**💡 Tip:** Hard-refresh (`Ctrl+Shift+R`) so the latest console scripts load. If the page ever looks stale or points at the wrong backend, go to: **Connect… → Reset saved**.
 
-### Manual start (any OS)
+<details>
+<summary><strong>🔧 Manual Start (Any OS)</strong></summary>
 
 ```powershell
 python -m venv .venv
@@ -34,148 +47,100 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 8077
 python -m http.server 8080          # different port from the API
 python -m worker.main               # job worker (needs the DB)
 ```
+</details>
 
-## Using the console
+---
 
-The run bar walks you through four steps — each one is clickable:
+## 💻 Using the Console
 
-1. **Backend** — where the API lives. Found automatically by scanning localhost;
-   override with `?backend=` or in **Connect…**.
-2. **Identity** — who you are. On a dev backend the console starts a **demo
-   session automatically** (user + project, stored in your browser only).
-   Turn it off in Connect… → Advanced.
-3. **Scene + Model** — pick a staged L2A scene and the reconstruction model.
-4. **Run** — submits the job and streams progress, previews and validation.
+The top Run Bar walks you through four clickable steps:
 
-**Connect…** shows live status (backend / identity / project), a backend finder,
-one-click demo session, and manual UUID fields. No backend? Both Run buttons
-play an honestly-labeled simulator demo instead of failing.
+1. 🔌 **Backend** — Where the API lives. Found automatically by scanning localhost; override with `?backend=` or in **Connect…**.
+2. 👤 **Identity** — Who you are. On a dev backend, the console starts a **demo session automatically** (user + project, stored in your browser only).
+3. 🗺️ **Scene + Model** — Pick a staged L2A scene and the reconstruction model.
+4. ▶️ **Run** — Submits the job and streams progress, previews, and validation.
 
-Map viewport modes: **Split Slider** (10 m vs 2.5 m), **10m**, **2.5m**, and
-**3D Tactical DEM** — a Three.js Himalayan terrain model
-(`assets/terrain_diffuse/height/normal.jpg`) with relief, contour, auto-orbit
-and photo/elevation controls plus fly-to-sector. Pure visualization, never analysis.
+**Connect…** shows live status (backend/identity/project), a backend finder, one-click demo session, and manual UUID fields. No backend? Both Run buttons play an honestly-labeled simulator demo instead of failing.
 
-## How the pipeline works
+### Viewport Modes
+* **Split Slider**: Compare the original 10 m and the reconstructed 2.5 m resolution.
+* **10m / 2.5m**: View full-screen single resolution.
+* **3D Tactical DEM**: A Three.js Himalayan terrain model (`assets/terrain_diffuse/height/normal.jpg`) with relief, contour, auto-orbit, and photo/elevation controls, plus fly-to-sector. *(Pure visualization, never analysis).*
 
+---
+
+## ⚙️ How the Pipeline Works
+
+```mermaid
+graph LR
+  CDSE[CDSE Catalogue] -- Search --> Product -- Download & MD5 --> SAFE[SAFE zip] --> Bands[B02/B03/B04/B08]
+  Job[Job QUEUED] -- Claim --> Preprocess --> Tile[Tile feathered] --> Model[SR Model] --> Stitch
+  Stitch -- sr.tif & uncertainty.tif --> Val[Validation] --> Report[report.json]
+  Report --> Final{PASS / CAUTION / FAIL}
 ```
-CDSE catalogue ──search──► product ──download+MD5──► SAFE zip ──► B02/B03/B04/B08
-job (QUEUED) ──claim──► preprocess ──► tile (feathered) ──► SR model ──► stitch
-    ──► sr.tif (COG, 2.5 m) + uncertainty.tif ──► validation ──► report.json
-    ──► PASS / CAUTION / FAIL (FAIL closes the run, never COMPLETED)
-```
+*(Note: A `FAIL` status closes the run, preventing unverified data from reaching analysts).*
 
-Models: `bicubic_4x` (baseline), `custom_mf_sr` (multi-frame fusion, 1–8 frames),
-`opensr_ldsrs2` (ESA diffusion; needs weights + torch, else `MODEL_UNAVAILABLE`).
+### Models & Validation
+* **Models:** `bicubic_4x` (baseline), `custom_mf_sr` (multi-frame fusion, 1–8 frames), `opensr_ldsrs2` (ESA diffusion; needs weights + torch, else `MODEL_UNAVAILABLE`).
+* **Job States:** `QUEUED` → `CLAIMED` → `PREPROCESSING` → `RECONSTRUCTING` → `UNCERTAINTY` → `VALIDATING` → `REPORTING` → `COMPLETED` (plus `FAILED`/`CANCELLED`). Claims carry a lease with heartbeat renewal; a reaper requeues stale claims.
+* **Validation:** Checks georeferencing, PSNR/SSIM on valid pixels, SAM/ERGAS, scale-back observation consistency, and uncertainty calibration. Any missing evidence fails the run.
 
-Job states: `QUEUED → CLAIMED → PREPROCESSING → RECONSTRUCTING → UNCERTAINTY →
-VALIDATING → REPORTING → COMPLETED`, plus `FAILED`/`CANCELLED`. Claims carry a
-lease with heartbeat renewal; a reaper requeues stale claims (`FOR UPDATE SKIP LOCKED`).
+---
 
-Validation checks georeferencing, PSNR/SSIM on valid pixels, SAM/ERGAS,
-scale-back observation consistency, and uncertainty calibration — any missing
-evidence fails the run.
+## 📡 HTTP API
 
-## HTTP API
-
-All routes under `/v1` (docs at `/docs`). Auth: `Authorization: Bearer <Supabase JWT>`,
-or `X-Dev-User: <uuid>` when the backend runs with `DEV_AUTH=true` (local only).
+All routes live under `/v1` (interactive docs at `/docs`).
+**Auth:** `Authorization: Bearer <Supabase JWT>`, or `X-Dev-User: <uuid>` when the backend runs with `DEV_AUTH=true`.
 
 | Group | Routes |
 |---|---|
-| health | `GET /v1/health` |
-| projects | `GET/POST /v1/projects` |
-| aois | `GET/POST /v1/aois` |
-| scenes | `GET /v1/scenes/search` |
-| jobs | `GET/POST /v1/jobs`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel` |
-| validations | `POST/GET /v1/validations`, `GET /v1/validations/{id}` |
-| reports | `GET /v1/reports/{id}` |
-| artifacts | `GET /v1/artifacts/{id}/content`, `POST …/signed-url` |
-| models | `GET /v1/models`, `GET /v1/models/status` |
-| alerts | `GET/POST /v1/alerts`, `POST /v1/alerts/{id}/status` |
-| copernicus | `POST /v1/copernicus/search`, `POST /v1/copernicus/ingest` |
-| dev | `POST /v1/dev/session` (only with `DEV_AUTH=true`) |
+| **health** | `GET /v1/health` |
+| **projects & aois** | `GET/POST /v1/projects` & `GET/POST /v1/aois` |
+| **scenes** | `GET /v1/scenes/search` |
+| **jobs** | `GET/POST /v1/jobs`, `GET /v1/jobs/{id}`, `POST /v1/jobs/{id}/cancel` |
+| **validations & reports** | `POST/GET /v1/validations`, `GET /v1/validations/{id}`, `GET /v1/reports/{id}` |
+| **artifacts** | `GET /v1/artifacts/{id}/content`, `POST …/signed-url` |
+| **models & alerts** | `GET /v1/models`, `GET /v1/models/status`, `GET/POST /v1/alerts`, `POST /v1/alerts/{id}/status` |
+| **copernicus & dev** | `POST /v1/copernicus/search`, `POST /v1/copernicus/ingest`, `POST /v1/dev/session` |
 
-Errors: `{"error": {"code": "STABLE_CODE", "message": "..."}}`.
+---
 
-## Configuration
-
-`.env` (gitignored). Everything below is optional depending on how far you go:
-
-```ini
-SUPABASE_DB_URL=postgresql://postgres:...@127.0.0.1:54322/postgres
-SUPABASE_URL= / SUPABASE_ANON_KEY= / SUPABASE_SERVICE_ROLE_KEY=
-COPERNICUS_USERNAME= / COPERNICUS_PASSWORD=   # product download only; search is anonymous
-DEV_AUTH=true                                  # X-Dev-User identity. Local dev only.
-ARTIFACT_STORE=local                           # local | storage | auto
-ARTIFACT_ROOT=./data/artifacts
-JOB_LEASE_SECONDS=300
-JOB_MAX_ATTEMPTS=3
-```
-
-Database schema: `supabase/migrations/0001..0014` (plus `0003a/b` split) applied in
-order — `python scripts/db_init.py` on an empty DB, `--verify` to check,
-`supabase db reset` with the Supabase CLI. `supabase/local/*.sql` shims
-Supabase-only objects (roles, `auth`/`storage` schemas) for plain Postgres.
-
-## Outputs
-
-Per reconstruct-validate job, under `ARTIFACT_ROOT`:
-
-| File | Contents |
-|---|---|
-| `sr.tif` | 4-band COG at 2.5 m, original CRS |
-| `uncertainty.tif` | Per-pixel uncertainty (gradient proxy, labeled as such) |
-| `report.json` | Metrics, decision, protocol version |
-| `preview_rgb.png` / `preview_false_color.png` | Visualizations only — analyze `sr.tif` |
-| `run_metadata.json` | Provenance: inputs, model, grid, commit, config hash |
-
-## Data sources and licenses
-
-- **Sentinel-2** (Copernicus Data Space): production input, L2A 10 m bands.
-- **WorldStrat v1.1** (Zenodo 15382551): reference data. SPOT HR imagery is
-  **CC BY-NC 4.0** — outputs trained on it inherit the non-commercial term.
-- **OpenSR LDSR-S2** (ESAOpenSR/opensr-model, pinned v1.1.1): reference model.
-  Fetch: `python scripts/fetch_opensr_weights.py`. See `SOURCES.md` for hashes/ledger.
-
-## Testing
-
-```powershell
-python scripts/compile_check.py   # byte-compile check (skips .venv)
-python scripts/smoke_e2e.py       # full pipeline, no DB, no network
-python -m pytest -q               # 77 passed, 1 skipped (RLS needs live Postgres)
-```
-
-## Repository layout
+## 📁 Repository Layout & Data Sources
 
 ```
 backend/            FastAPI control plane (routers, auth, queue, validation engine)
-worker/             claim-execute loop (preprocess, tiling, baselines, COG io)
-supabase/migrations 0001..0014 versioned schema (+ RLS, seeds, alerts)
-supabase/local      local-only shims for plain Postgres
-tests/              pytest suite (hermetic fake_db; RLS self-skips)
+worker/             Claim-execute loop (preprocess, tiling, baselines, COG io)
+supabase/           Versioned schema (0001..0014), RLS, seeds, alerts, & local shims
+tests/              Pytest suite (hermetic fake_db; RLS self-skips)
 scripts/            serve.py, db_init.py, smoke_e2e.py, fetchers, stage_real_scene.py
-index.html js/ css/ assets/   operator console (static)
-Start-SENTRY.bat / Stop-SENTRY.bat   one-click local run (Windows)
+index.html / js/    Operator console (static, HTML/JS/CSS, 3D assets)
 ```
 
-## Troubleshooting
+**Data sources:**
+- **Sentinel-2** (Copernicus Data Space): Production input, L2A 10 m bands.
+- **WorldStrat v1.1** (Zenodo 15382551): Reference data. SPOT HR imagery is **CC BY-NC 4.0** — outputs trained on it inherit the non-commercial term.
+- **OpenSR LDSR-S2** (ESAOpenSR/opensr-model, pinned v1.1.1): Reference model. Fetch: `python scripts/fetch_opensr_weights.py`. See `SOURCES.md` for hashes/ledger.
 
-- **Page shows nothing / badge says offline** — start everything with
-  `Start-SENTRY.bat`, hard-refresh, or Connect… → Reset saved.
-- **Demo session fails** — needs Postgres (`docker start sentry-postgres`) and
-  `DEV_AUTH=true` on the backend; check `/v1/health` (`db`, `dev_auth`).
-- **Scene list empty** — no scenes staged yet. Ingest via
-  `POST /v1/copernicus/ingest` (needs CDSE credentials) or
-  `python scripts/stage_real_scene.py`.
-- **`MODEL_UNAVAILABLE` for opensr_ldsrs2** — fetch weights + install torch, or
-  use `bicubic_4x` / `custom_mf_sr`.
-- **Port 8000 busy** — the launcher uses 8077/8080; Docker Desktop may hold 8000.
+---
 
-## Known limitations
+## 🛠️ Testing & Configuration
 
-- Uncertainty raster is a gradient-magnitude proxy, not a diffusion posterior.
-- Pixel inspector and evidence dossiers are simulator-backed; alerts/metrics
-  charts mix live rows with clearly-labeled demo content where noted.
-- No Copernicus frame selector (cloud-rank, 8-frame cap enforced only in worker).
-- RLS test runs against live Postgres only; lease mechanics covered by fakes.
+**Configuration:** Rename/use `.env` for setup (e.g., `DEV_AUTH=true`, `ARTIFACT_STORE=local`). Database schema is found in `supabase/migrations/` and applied in order using `python scripts/db_init.py` or the Supabase CLI.
+
+**Testing:**
+```powershell
+python scripts/compile_check.py   # byte-compile check (skips .venv)
+python scripts/smoke_e2e.py       # full pipeline, no DB, no network
+python -m pytest -q               # fast unit testing
+```
+
+---
+
+## 🚨 Troubleshooting & Known Limitations
+
+- **Page shows nothing / offline badge** — Run `Start-SENTRY.bat`, hard-refresh, or Connect… → Reset saved.
+- **Demo session fails** — Needs Postgres (`docker start sentry-postgres`) and `DEV_AUTH=true` on the backend.
+- **Scene list empty** — No scenes staged yet. Ingest via `POST /v1/copernicus/ingest` (needs CDSE credentials).
+- **`MODEL_UNAVAILABLE`** — Fetch weights + install PyTorch, or fallback to `bicubic_4x` / `custom_mf_sr`.
+- **Port 8000 busy** — SENTRY explicitly uses 8077/8080.
+- **Limitations:** Uncertainty raster is a gradient-magnitude proxy; pixel inspector/evidence dossiers are simulator-backed for demo purposes; no Copernicus frame selector yet.
