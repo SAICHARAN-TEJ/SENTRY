@@ -14,11 +14,12 @@ Built for the **Smart India Hackathon** problem statement SIH26142 (NTRO, Space 
 ---
 
 ## 🎬 Action Demo
-Here's a sped-up look at the SUBPIXEL-SENTRY console in action—from kicking off a job to inspecting the split-slider, metrics, and evidence dossier.
 
-[![Launch Video](brag-output/brag.gif)](brag-output/brag.webm)
+Experience SUBPIXEL-SENTRY in action! Watch as we kick off a job, inspect the super-resolved split-slider, analyze metrics, and review the final evidence dossier. 
 
-*(Click the GIF or [here](brag-output/brag.webm) to watch the full 1-minute UI walkthrough.)*
+[![Launch Video](brag-output/brag.gif)](brag-output/brag.mp4)
+
+*(Click the GIF or [here](brag-output/brag.mp4) to watch the full UI walkthrough!)*
 
 ---
 
