@@ -1,1 +1,3 @@
-Tactical land-cover intelligence that finds the unseen. SUBPIXEL-SENTRY combines spectral unmixing with AI validation to detect subpixel targets and anomalies. Fully autonomous, zero blind spots.
+SUBPIXEL-SENTRY.
+Trust, but verify the AI: super-resolving Sentinel-2 satellite imagery from 10m to 2.5m/px with full mathematical pixel interrogation.
+Find the unseen. Prove it's real.

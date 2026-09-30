@@ -40,3 +40,16 @@ ehthumbs_vista.db
 serve-logs/
 
 .freebuff/
+
+# Node
+node_modules/
+package-lock.json
+package.json
+
+# Scratch recordings
+record-human.js
+generate_video.py
+brag-output-*/
+brag-output/work/
+brag-output/*.webm
+
